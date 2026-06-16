@@ -1,0 +1,162 @@
+[
+  {
+    "repo_id": "bartowski/Llama-3.2-3B-Instruct-GGUF",
+    "name": "Llama 3.2 3B Instruct",
+    "description": "Meta's Llama 3.2 3B instruction-tuned model. Great for everyday tasks.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 2.0,
+    "tags": ["meta", "llama", "instruct", "3b"]
+  },
+  {
+    "repo_id": "bartowski/Llama-3.2-1B-Instruct-GGUF",
+    "name": "Llama 3.2 1B Instruct",
+    "description": "Meta's Llama 3.2 1B instruction-tuned model. Ultra-lightweight for constrained environments.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 0.8,
+    "tags": ["meta", "llama", "instruct", "1b"]
+  },
+  {
+    "repo_id": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+    "name": "Llama 3.1 8B Instruct",
+    "description": "Meta's Llama 3.1 8B instruction-tuned model. Strong general-purpose assistant.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 5.0,
+    "tags": ["meta", "llama", "instruct", "8b"]
+  },
+  {
+    "repo_id": "bartowski/Mistral-7B-Instruct-v0.3-GGUF",
+    "name": "Mistral 7B Instruct v0.3",
+    "description": "Mistral AI's 7B instruction-tuned model v0.3. Fast and capable.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 4.1,
+    "tags": ["mistral", "instruct", "7b"]
+  },
+  {
+    "repo_id": "bartowski/gemma-3-4b-it-GGUF",
+    "name": "Gemma 3 4B Instruct",
+    "description": "Google's Gemma 3 4B instruction-tuned model. Efficient and capable.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 2.5,
+    "tags": ["google", "gemma", "instruct", "4b"]
+  },
+  {
+    "repo_id": "bartowski/gemma-3-12b-it-GGUF",
+    "name": "Gemma 3 12B Instruct",
+    "description": "Google's Gemma 3 12B instruction-tuned model. Higher capability with good efficiency.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 7.0,
+    "tags": ["google", "gemma", "instruct", "12b"]
+  },
+  {
+    "repo_id": "bartowski/Qwen2.5-7B-Instruct-GGUF",
+    "name": "Qwen 2.5 7B Instruct",
+    "description": "Alibaba's Qwen 2.5 7B instruction-tuned model. Strong multilingual capabilities.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 4.5,
+    "tags": ["alibaba", "qwen", "instruct", "7b", "multilingual"]
+  },
+  {
+    "repo_id": "bartowski/Qwen2.5-3B-Instruct-GGUF",
+    "name": "Qwen 2.5 3B Instruct",
+    "description": "Alibaba's Qwen 2.5 3B instruction-tuned model. Compact multilingual assistant.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 2.0,
+    "tags": ["alibaba", "qwen", "instruct", "3b", "multilingual"]
+  },
+  {
+    "repo_id": "bartowski/phi-4-GGUF",
+    "name": "Microsoft Phi-4 14B",
+    "description": "Microsoft's Phi-4 14B model. Exceptional reasoning and coding capabilities.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 8.5,
+    "tags": ["microsoft", "phi", "reasoning", "coding", "14b"]
+  },
+  {
+    "repo_id": "bartowski/SmolLM2-1.7B-Instruct-GGUF",
+    "name": "SmolLM2 1.7B Instruct",
+    "description": "HuggingFace's SmolLM2 1.7B instruction-tuned model. Tiny but capable.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 1.1,
+    "tags": ["huggingface", "smollm", "instruct", "1.7b", "tiny"]
+  },
+  {
+    "repo_id": "bartowski/deepseek-r1-0528-qwen3-8b-GGUF",
+    "name": "DeepSeek R1 8B",
+    "description": "DeepSeek's R1 reasoning model based on Qwen3 8B. Strong analytical reasoning.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 5.0,
+    "tags": ["deepseek", "reasoning", "qwen3", "8b"]
+  },
+  {
+    "repo_id": "bartowski/Codestral-22B-v0.1-GGUF",
+    "name": "Mistral Codestral 22B",
+    "description": "Mistral's Codestral 22B code generation model. Best-in-class for coding tasks.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 13.0,
+    "tags": ["mistral", "coding", "22b"]
+  },
+  {
+    "repo_id": "bartowski/Mistral-Nemo-Instruct-2407-GGUF",
+    "name": "Mistral Nemo 12B",
+    "description": "Mistral's Nemo 12B instruction-tuned model. Trained with Nvidia, great balance of size and capability.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 7.5,
+    "tags": ["mistral", "nvidia", "instruct", "12b"]
+  },
+  {
+    "repo_id": "bartowski/Yi-1.5-9B-Chat-GGUF",
+    "name": "Yi 1.5 9B Chat",
+    "description": "01.AI's Yi 1.5 9B chat model. Strong multilingual and long-context capabilities.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 5.5,
+    "tags": ["01ai", "yi", "chat", "9b", "multilingual"]
+  },
+  {
+    "repo_id": "bartowski/stablelm-2-zephyr-1_6b-GGUF",
+    "name": "StableLM 2 Zephyr 1.6B",
+    "description": "Stability AI's StableLM 2 Zephyr 1.6B. Lightweight chat model with good quality.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 1.0,
+    "tags": ["stability", "stablelm", "chat", "1.6b"]
+  },
+  {
+    "repo_id": "bartowski/internlm2_5-7b-chat-GGUF",
+    "name": "InternLM 2.5 7B Chat",
+    "description": "Shanghai AI Lab's InternLM 2.5 7B chat model. Strong tool use and long-context support.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 4.5,
+    "tags": ["shanghai-ai-lab", "internlm", "chat", "7b"]
+  },
+  {
+    "repo_id": "bartowski/Hermes-3-Llama-3.1-8B-GGUF",
+    "name": "Hermes 3 Llama 3.1 8B",
+    "description": "NousResearch's Hermes 3 fine-tune of Llama 3.1 8B. Enhanced instruction following and reasoning.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 5.0,
+    "tags": ["nousresearch", "hermes", "llama", "instruct", "8b"]
+  },
+  {
+    "repo_id": "bartowski/openchat-3.6-8b-20240522-GGUF",
+    "name": "OpenChat 3.6 8B",
+    "description": "OpenChat 3.6 8B model. High-quality open-source chat model trained with C-RLFT.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 5.0,
+    "tags": ["openchat", "chat", "8b"]
+  },
+  {
+    "repo_id": "bartowski/Mistral-Small-3.1-24B-Instruct-2503-GGUF",
+    "name": "Mistral Small 3.1 24B",
+    "description": "Mistral's Small 3.1 24B instruction-tuned model. Powerful frontier-quality model.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 14.5,
+    "tags": ["mistral", "instruct", "24b"]
+  },
+  {
+    "repo_id": "bartowski/dolphin-2.9.4-gemma2-2b-GGUF",
+    "name": "Dolphin Gemma2 2B",
+    "description": "Cognitive Computations' Dolphin 2.9.4 fine-tune of Gemma2 2B. Uncensored assistant.",
+    "recommended_quant": "Q4_K_M",
+    "approx_size_gb": 1.6,
+    "tags": ["cognitive-computations", "dolphin", "gemma2", "2b"]
+  }
+]

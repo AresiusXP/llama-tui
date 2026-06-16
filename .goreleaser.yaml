@@ -1,0 +1,49 @@
+version: 2
+
+project_name: llama-tui
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: llama-tui
+    main: .
+    binary: llama-tui
+    ldflags:
+      - -s -w -X github.com/patriciodanos/llama-tui/cmd.Version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    name_template: "llama-tui_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: patriciodanos
+    name: llama-tui
+  draft: false
+  prerelease: auto
+  name_template: "{{.ProjectName}} {{.Version}}"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"

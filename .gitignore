@@ -1,0 +1,32 @@
+# Build output
+dist/
+*.exe
+
+# Go toolchain
+vendor/
+
+# Test cache and coverage
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# GoReleaser artifacts
+.goreleaser-tmp/
+
+# Secrets / local config overrides
+*.env
+.env.*
+config.local.toml
