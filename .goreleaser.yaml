@@ -33,9 +33,6 @@ checksum:
   name_template: "checksums.txt"
 
 release:
-  github:
-    owner: patriciodanos
-    name: llama-tui
   draft: false
   prerelease: auto
   name_template: "{{.ProjectName}} {{.Version}}"
