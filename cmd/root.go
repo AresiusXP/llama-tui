@@ -41,7 +41,6 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	p := tea.NewProgram(
 		model,
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
 	)
 
 	// Wire the program back into the manager so async events (server start,

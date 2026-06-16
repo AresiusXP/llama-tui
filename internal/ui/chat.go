@@ -175,22 +175,13 @@ func (m ChatModel) View() string {
 		contentWidth = 1
 	}
 
-	// Header: "Chat · ModelName"
-	titleLabel := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ColorAccent)).
-		Bold(true).
-		Render("Chat")
-	titleSep := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ColorTextDim)).
-		Render("  ·  ")
-	titleModel := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ColorText)).
-		Render(m.modelName)
+	// Header: "CHAT · ModelName" — consistent with other panels using StylePanelTitle.
+	titleLabel := StylePanelTitle.Render("CHAT")
+	titleSep := StyleDim.Render("  ·  ")
+	titleModel := StyleBold.Render(m.modelName)
 	header := titleLabel + titleSep + titleModel
 
-	divider := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ColorBorder)).
-		Render(strings.Repeat("─", contentWidth))
+	divider := StyleDim.Render(strings.Repeat("─", contentWidth))
 
 	// Input bar (fixed height: 1 line + padding)
 	inputStyle := lipgloss.NewStyle().

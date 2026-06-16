@@ -77,12 +77,15 @@ func (m StatusPanelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the status panel content (without the border — RenderFrame adds that).
 // Returns 1 line when MetricsEnabled is false, 2 lines when true.
+// The status panel is too compact (1–2 inner lines) to fit a multi-line title header,
+// so the green ● bullet acts as a visual anchor / panel identity marker inline.
 func (m StatusPanelModel) View() string {
 	sep := StyleDim.Render("  │  ")
 
 	// ── Line 1: static info ──────────────────────────────────────────────
 	var modelStr string
 	if m.ModelLoaded {
+		// Green bullet used as the inline "panel title" anchor.
 		modelStr = StyleBadgeLoaded.Render("● Loaded")
 	} else {
 		modelStr = StyleBadgeStopped.Render("○ Not Loaded")
@@ -97,7 +100,6 @@ func (m StatusPanelModel) View() string {
 	gpuStr := StyleDim.Render(gpu)
 
 	// Show slot occupancy when model is loaded.
-	// Display a placeholder until the first poll returns real slot data.
 	var slotsStr string
 	if m.ModelLoaded {
 		if m.TotalSlots > 0 {
@@ -108,7 +110,7 @@ func (m StatusPanelModel) View() string {
 	}
 
 	llamaStr := StyleDim.Render(m.LlamaVersion)
-	appStr := StyleDim.Render(m.AppVersion)
+	appStr := StyleMuted.Render(m.AppVersion)
 
 	line1Parts := []string{modelStr, sep, usageStr}
 	if slotsStr != "" {

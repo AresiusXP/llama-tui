@@ -254,16 +254,17 @@ var spinnerFrames = []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "�
 
 // View renders the library panel content.
 func (m LibraryModel) View() string {
-	title := StyleTitle.Render("LOCAL MODELS")
+	titleLine := StylePanelTitle.Render("LOCAL MODELS")
+	sep := StyleDim.Render(strings.Repeat("─", m.width))
 
 	if len(m.models) == 0 {
 		empty := StyleDim.Render("No models found\nPress [d] to download")
-		return lipgloss.JoinVertical(lipgloss.Left, title, "", empty)
+		return lipgloss.JoinVertical(lipgloss.Left, titleLine, sep, "", empty)
 	}
 
 	// Calculate how many rows we can display.
-	// Title takes 1 line + 1 blank line = 2 overhead.
-	const overhead = 2
+	// Title takes 1 line + separator 1 line + 1 blank line = 3 overhead.
+	const overhead = 3
 	visibleRows := m.height - overhead
 	if visibleRows < 1 {
 		visibleRows = 1
@@ -287,7 +288,7 @@ func (m LibraryModel) View() string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
-	return lipgloss.JoinVertical(lipgloss.Left, title, "", content)
+	return lipgloss.JoinVertical(lipgloss.Left, titleLine, sep, "", content)
 }
 
 // renderModelRow renders a single model list entry.

@@ -52,22 +52,51 @@ func (m LogPanelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// colorLogLine applies semantic colour to a single log line based on content.
+// The classification uses simple substring matching on a lowercased copy —
+// fast and sufficient for llama-server's output format.
+func colorLogLine(line string) string {
+	lower := strings.ToLower(line)
+
+	switch {
+	case strings.Contains(lower, "error") ||
+		strings.Contains(lower, "fatal") ||
+		strings.Contains(lower, "err "):
+		return StyleError.Render(line)
+
+	case strings.Contains(lower, "warn"):
+		return StyleWarning.Render(line)
+
+	case strings.Contains(lower, "---") ||
+		strings.Contains(lower, "─── live ───") ||
+		strings.Contains(lower, "─── dead ───"):
+		return StyleSuccess.Bold(true).Render(line)
+
+	case strings.Contains(lower, "model loaded") ||
+		strings.Contains(lower, "server is listening") ||
+		strings.Contains(lower, "listening on") ||
+		strings.Contains(lower, "main: model") ||
+		strings.Contains(lower, "llama server"):
+		return StyleLogInfo.Render(line)
+
+	default:
+		return StyleDim.Render(line)
+	}
+}
+
 // View renders the log panel content (without the border — RenderFrame adds that).
 func (m LogPanelModel) View() string {
-	if len(m.logs) == 0 && m.lastError == "" {
-		return StyleDim.Render("No logs yet.")
+	// Build the panel title header (2 lines: title + separator rule).
+	titleLine := StylePanelTitle.Render("LOGS")
+	w := m.width
+	if w < 1 {
+		w = 40
 	}
+	sep := StyleDim.Render(strings.Repeat("─", w))
 
-	var lines []string
-
-	if m.lastError != "" {
-		lines = append(lines, StyleError.Render("✕ "+m.lastError))
-	}
-
-	// Calculate how many log lines we can show given the panel's inner height.
-	// m.height is the inner content height (border already handled by RenderFrame).
-	// Reserve 1 line for the error banner if set.
-	maxLines := m.height
+	// Lines available for actual log content:
+	// total height − 2 (title + separator) − 1 (error banner if set).
+	maxLines := m.height - 2
 	if m.lastError != "" {
 		maxLines--
 	}
@@ -75,24 +104,40 @@ func (m LogPanelModel) View() string {
 		maxLines = 1
 	}
 
-	// Take the most recent lines.
+	if len(m.logs) == 0 && m.lastError == "" {
+		// Compact empty state when the panel is too small for two lines.
+		if m.height < 4 {
+			return strings.Join([]string{titleLine, sep, StyleDim.Render("No logs yet.")}, "\n")
+		}
+		empty1 := StyleDim.Render("No server logs yet.")
+		empty2 := StyleDim.Render("Logs appear when a model is loaded.")
+		return strings.Join([]string{titleLine, sep, empty1, empty2}, "\n")
+	}
+
+	var lines []string
+	lines = append(lines, titleLine, sep)
+
+	if m.lastError != "" {
+		lines = append(lines, StyleError.Render("✕ "+m.lastError))
+	}
+
+	// Take the most recent lines that fit.
 	visible := m.logs
 	if len(visible) > maxLines {
 		visible = visible[len(visible)-maxLines:]
 	}
 
-	// Truncate each line to fit panel inner width.
+	// Truncate each line to the panel inner width.
 	maxLineWidth := m.width
 	if maxLineWidth < 1 {
 		maxLineWidth = 40
 	}
 	for _, l := range visible {
-		// Truncate long lines safely using rune slicing (avoids splitting multi-byte characters).
 		runes := []rune(l)
 		if len(runes) > maxLineWidth {
 			l = string(runes[:maxLineWidth-1]) + "…"
 		}
-		lines = append(lines, StyleDim.Render(l))
+		lines = append(lines, colorLogLine(l))
 	}
 
 	return strings.Join(lines, "\n")

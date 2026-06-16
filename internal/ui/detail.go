@@ -90,33 +90,53 @@ func (m DetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the detail panel content.
 func (m DetailModel) View() string {
+	w := m.width
+	if w < 1 {
+		w = 40
+	}
+
+	// Panel title header (consistent with all other panels).
+	titleLine := StylePanelTitle.Render("MODEL DETAIL")
+	sep := StyleDim.Render(strings.Repeat("─", w))
+
 	if m.model == nil {
 		hint := StyleDim.Render("Select a model from the left panel\nor press [d] to download a new model.")
-		return hint
+		return lipgloss.JoinVertical(lipgloss.Left, titleLine, sep, "", hint)
 	}
 
 	lm := m.model
 
-	// Separator line.
-	sep := StyleDim.Render(strings.Repeat("─", m.width-6))
-	if m.width <= 6 {
-		sep = StyleDim.Render("─────────────────────────────────────────")
+	// Inner separator (narrower, after fields).
+	innerSep := StyleDim.Render(strings.Repeat("─", w-4))
+	if w <= 4 {
+		innerSep = StyleDim.Render("──────────────────────────────")
 	}
 
-	// Title.
-	title := StyleBold.Render(lm.Name)
+	// Model name as sub-header — bold accent so it stands out beneath the panel title.
+	modelName := StyleBold.Render(lm.Name)
 
-	// Status badge.
+	// Status badge — downloads/pauses take absolute priority.
+	// For a loaded model, the live serverState refines the display.
+	// For an available model, serverState is irrelevant — show AVAILABLE.
 	var statusStr string
-	switch lm.Status {
-	case StatusLoaded:
-		statusStr = StyleBadgeLoaded.Render("● LOADED")
-	case StatusDownloading:
+	switch {
+	case lm.Status == StatusDownloading:
 		pct := int(lm.Progress * 100)
 		statusStr = StyleBadgeDownload.Render(fmt.Sprintf("⣾ DOWNLOADING %d%%", pct))
-	case StatusPaused:
+	case lm.Status == StatusPaused:
 		pct := int(lm.Progress * 100)
 		statusStr = StyleBadgeDownload.Render(fmt.Sprintf("⏸ PAUSED %d%%", pct))
+	case lm.Status == StatusLoaded:
+		switch m.serverState {
+		case "RUNNING":
+			statusStr = StyleBadgeLoaded.Render("● RUNNING")
+		case "STARTING":
+			statusStr = StyleBadgeDownload.Render("◌ STARTING")
+		case "ERROR":
+			statusStr = StyleBadgeStopped.Render("✕ ERROR")
+		default:
+			statusStr = StyleBadgeLoaded.Render("● LOADED")
+		}
 	default:
 		statusStr = StyleBadgeAvail.Render("○ AVAILABLE")
 	}
@@ -128,24 +148,30 @@ func (m DetailModel) View() string {
 		return StyleDim.Render(fmt.Sprintf("%-*s", labelW, label))
 	}
 
-	// GPU line.
-	gpuLine := ""
-	if m.gpuName != "" {
-		gpu := fmt.Sprintf("%s · Metal", m.gpuName)
-		gpuLine = fmt.Sprintf("\n  %s%s\n", fieldLabel("GPU"), gpu)
-	}
-
 	// Downloaded date.
 	downloaded := lm.DownloadedAt.Format("2006-01-02")
 
-	details := fmt.Sprintf(
-		"  %s\n  %s%s\n  %s%s\n  %s%s\n  %s%s",
-		fieldLabel("Quantization")+lm.Quant,
-		fieldLabel("Size"), lm.SizeDisplay,
-		fieldLabel("Downloaded"), downloaded,
-		fieldLabel("Status"), statusStr,
-		fieldLabel("Path"), StyleDim.Render(truncatePath(lm.Path, m.width-labelW-6)),
-	)
+	// Core fields.
+	fields := []string{
+		fmt.Sprintf("  %s%s", fieldLabel("Quantization"), lm.Quant),
+		fmt.Sprintf("  %s%s", fieldLabel("Size"), lm.SizeDisplay),
+		fmt.Sprintf("  %s%s", fieldLabel("Downloaded"), downloaded),
+		fmt.Sprintf("  %s%s", fieldLabel("Status"), statusStr),
+	}
+
+	// Address row — only shown when server is running.
+	if m.address != "" {
+		fields = append(fields, fmt.Sprintf("  %s%s", fieldLabel("Address"), StyleKey.Render(m.address)))
+	}
+
+	// Path row.
+	fields = append(fields, fmt.Sprintf("  %s%s", fieldLabel("Path"), StyleDim.Render(truncatePath(lm.Path, w-labelW-6))))
+
+	// GPU line.
+	if m.gpuName != "" {
+		gpu := fmt.Sprintf("%s · Metal", m.gpuName)
+		fields = append(fields, fmt.Sprintf("\n  %s%s", fieldLabel("GPU"), gpu))
+	}
 
 	// Action keys.
 	keysLine := buildKeyHints([]keyHint{
@@ -155,19 +181,21 @@ func (m DetailModel) View() string {
 		{"Ctrl+D", "Delete"},
 	})
 
-	view := lipgloss.JoinVertical(
-		lipgloss.Left,
-		"  "+title,
-		"  "+sep,
+	parts := []string{
+		titleLine,
+		sep,
+		"  " + modelName,
+		"  " + innerSep,
 		"",
-		details,
-		gpuLine,
-		"  "+sep,
+	}
+	parts = append(parts, fields...)
+	parts = append(parts,
+		"  "+innerSep,
 		"",
 		"  "+keysLine,
 	)
 
-	return view
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 // keyHint is a key+label pair for the hints bar.

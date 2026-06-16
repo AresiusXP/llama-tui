@@ -43,7 +43,7 @@ func NewLayout(width, height int, metricsEnabled bool) Layout {
 	const statusHeight = 1
 	const actionHeight = 1
 
-	leftWidth := width * 35 / 100
+	leftWidth := width * 30 / 100
 	rightWidth := width - leftWidth
 
 	// Total rows available for the two panel columns.
@@ -59,8 +59,8 @@ func NewLayout(width, height int, metricsEnabled bool) Layout {
 		innerHeight = 2
 	}
 
-	// Left column: library (top, 70%) + log panel (bottom, 30%).
-	leftTopHeight := innerHeight * 70 / 100
+	// Left column: library (top, 78%) + log panel (bottom, 22%).
+	leftTopHeight := innerHeight * 78 / 100
 	if leftTopHeight < 1 {
 		leftTopHeight = 1
 	}

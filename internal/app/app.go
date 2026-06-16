@@ -459,6 +459,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── llama-server events ──────────────────────────────────────────────
 	case llamaserver.ServerStartedMsg:
 		m.library.SetActiveModel(msg.Model)
+		// Sync the detail panel's model snapshot so lm.Status reflects StatusLoaded
+		// immediately. Without this, detail.View() shows "○ AVAILABLE" because it
+		// holds a stale pre-load copy of the model.
+		m.detail.SetModel(m.library.SelectedModel())
 		m.detail.SetServerState("RUNNING", msg.Address, m.activeGPUName())
 		m.logs.SetLogs(m.serverLogs)
 		m.status.ModelLoaded = true
