@@ -961,11 +961,15 @@ func (m *Model) buildRunConfig(modelPath string) llamaserver.ModelRunConfig {
 	}
 
 	return llamaserver.ModelRunConfig{
-		ModelPath:   modelPath,
-		Port:        m.cfg.Server.Port,
-		ContextSize: m.cfg.Server.ContextSize,
-		GPULayers:   m.cfg.Server.GPULayers,
-		GPU:         gpu,
+		ModelPath:      modelPath,
+		Port:           m.cfg.Server.Port,
+		ContextSize:    m.cfg.Server.ContextSize,
+		GPULayers:      m.cfg.Server.GPULayers,
+		GPU:            gpu,
+		ParallelSlots:  m.cfg.Server.ParallelSlots,
+		KVCacheTypeK:   m.cfg.Server.KVCacheTypeK,
+		KVCacheTypeV:   m.cfg.Server.KVCacheTypeV,
+		MetricsEnabled: m.cfg.Server.MetricsEnabled,
 	}
 }
 

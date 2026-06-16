@@ -25,66 +25,77 @@ type GPUsDetectedMsg struct {
 
 // Field indices (for fields slice).
 const (
-	fieldModelsDir  = iota
+	fieldModelsDir     = iota
 	fieldPort
 	fieldContextSize
 	fieldGPULayers
+	fieldParallelSlots
+	fieldKVCacheTypeK
+	fieldKVCacheTypeV
+	fieldMetrics // virtual field (bool toggle, not a textinput) — must be between KV fields and HFToken to match visual order
 	fieldHFToken
-	fieldCount // sentinel
+	fieldTotal // total number of navigable field slots (text inputs + the metrics toggle)
 )
+
+// Valid KV cache type values accepted by llama-server.
+var validKVCacheTypes = map[string]bool{
+	"f32": true, "f16": true, "bf16": true,
+	"q8_0": true, "q4_0": true, "q4_1": true,
+	"iq4_nl": true, "q5_0": true, "q5_1": true,
+}
 
 // SettingsModel is the full-screen settings model.
 type SettingsModel struct {
-	cfg          *config.Config
-	gpus         []hardware.GPU
-	gpuCursor    int // currently highlighted GPU in the GPU list
-	fields       []textinput.Model
-	activeField  int  // which text field has focus
-	inGPUList    bool // true when navigating the GPU list
+	cfg           *config.Config
+	gpus          []hardware.GPU
+	gpuCursor     int // currently highlighted GPU in the GPU list
+	fields        []textinput.Model
+	activeField   int  // which text field has focus
+	inGPUList     bool // true when navigating the GPU list
 	fieldsFocused bool // true when a text field is in editing mode
-	width        int
-	height       int
-	saved        bool
-	errMsg       string
-	successMsg   string
+	metricsOn     bool // bool toggle for MetricsEnabled (not a textinput)
+	width         int
+	height        int
+	saved         bool
+	errMsg        string
+	successMsg    string
 }
 
 // NewSettings constructs a SettingsModel pre-populated from cfg.
 func NewSettings(cfg *config.Config, gpus []hardware.GPU, width, height int) SettingsModel {
-	fields := make([]textinput.Model, fieldCount)
+	// fields is indexed by the field constants. The slot at fieldMetrics is
+	// intentionally left as a zero-value textinput — it is never used; the
+	// metrics toggle is handled separately via m.metricsOn.
+	fields := make([]textinput.Model, fieldTotal)
 
-	labels := []string{
-		"Models directory",
-		"Server port",
-		"Context size",
-		"GPU layers",
-		"HF API token",
+	type fieldDef struct {
+		placeholder string
+		value       string
 	}
-	placeholders := []string{
-		"/path/to/models",
-		"8080",
-		"4096",
-		"-1",
-		"hf_...",
-	}
-	values := []string{
-		cfg.ModelsDir,
-		strconv.Itoa(cfg.Server.Port),
-		strconv.Itoa(cfg.Server.ContextSize),
-		strconv.Itoa(cfg.Server.GPULayers),
-		cfg.HuggingFace.Token,
+	defs := map[int]fieldDef{
+		fieldModelsDir:     {"/path/to/models", cfg.ModelsDir},
+		fieldPort:          {"8080", strconv.Itoa(cfg.Server.Port)},
+		fieldContextSize:   {"4096", strconv.Itoa(cfg.Server.ContextSize)},
+		fieldGPULayers:     {"-1", strconv.Itoa(cfg.Server.GPULayers)},
+		fieldParallelSlots: {"-1", strconv.Itoa(cfg.Server.ParallelSlots)},
+		fieldKVCacheTypeK:  {"f16", cfg.Server.KVCacheTypeK},
+		fieldKVCacheTypeV:  {"f16", cfg.Server.KVCacheTypeV},
+		fieldHFToken:       {"hf_...", cfg.HuggingFace.Token},
 	}
 
-	for i := 0; i < fieldCount; i++ {
+	for i := 0; i < fieldTotal; i++ {
+		if i == fieldMetrics {
+			continue // virtual toggle — no textinput
+		}
+		d := defs[i]
 		ti := textinput.New()
 		ti.Prompt = ""
-		ti.Placeholder = placeholders[i]
-		ti.SetValue(values[i])
+		ti.Placeholder = d.placeholder
+		ti.SetValue(d.value)
 		ti.Width = 40
 		ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorTextDim))
 		ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorText))
 		ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorTextMuted))
-		_ = labels[i] // used in View
 		fields[i] = ti
 	}
 
@@ -108,6 +119,7 @@ func NewSettings(cfg *config.Config, gpus []hardware.GPU, width, height int) Set
 		fields:        fields,
 		activeField:   fieldModelsDir,
 		fieldsFocused: true, // start in editing mode on the first field
+		metricsOn:     cfg.Server.MetricsEnabled,
 		width:         width,
 		height:        height,
 	}
@@ -177,6 +189,7 @@ func (m SettingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// When fieldsFocused=true the user is typing in a text field.
 		// Only Tab, Shift+Tab, Ctrl+S, and Esc are intercepted.
 		// All other keys go straight to the active field.
+		// Note: fieldsFocused can only be true for real textinput fields (not the metrics toggle).
 		if m.fieldsFocused {
 			switch msg.String() {
 			case "esc":
@@ -190,15 +203,25 @@ func (m SettingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case "tab":
 				m.fields[m.activeField].Blur()
-				m.activeField = (m.activeField + 1) % fieldCount
-				m.fields[m.activeField].Focus()
-				return m, textinput.Blink
+				m.activeField = (m.activeField + 1) % fieldTotal
+				if m.activeField != fieldMetrics {
+					m.fields[m.activeField].Focus()
+					return m, textinput.Blink
+				}
+				// Landed on the metrics toggle — exit editing mode.
+				m.fieldsFocused = false
+				return m, nil
 
 			case "shift+tab":
 				m.fields[m.activeField].Blur()
-				m.activeField = (m.activeField - 1 + fieldCount) % fieldCount
-				m.fields[m.activeField].Focus()
-				return m, textinput.Blink
+				m.activeField = (m.activeField - 1 + fieldTotal) % fieldTotal
+				if m.activeField != fieldMetrics {
+					m.fields[m.activeField].Focus()
+					return m, textinput.Blink
+				}
+				// Landed on the metrics toggle — exit editing mode.
+				m.fieldsFocused = false
+				return m, nil
 			}
 
 			// All other keys go to the active text field.
@@ -226,28 +249,53 @@ func (m SettingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case "tab", "enter":
-			// Re-enter editing mode on the current field.
+		case "enter":
+			// Enter toggles metrics when that field is active; otherwise re-enters editing mode.
+			if m.activeField == fieldMetrics {
+				m.metricsOn = !m.metricsOn
+				return m, nil
+			}
 			m.fields[m.activeField].Focus()
 			m.fieldsFocused = true
 			return m, textinput.Blink
+
+		case "tab":
+			// Tab always navigates; never toggles.
+			m.activeField = (m.activeField + 1) % fieldTotal
+			if m.activeField != fieldMetrics {
+				m.fields[m.activeField].Focus()
+				m.fieldsFocused = true
+				return m, textinput.Blink
+			}
+			return m, nil
+
+		case " ":
+			// Space always toggles the metrics field when it's active.
+			if m.activeField == fieldMetrics {
+				m.metricsOn = !m.metricsOn
+			}
+			return m, nil
 
 		case "shift+tab":
-			// Move to previous field and enter editing mode.
-			m.activeField = (m.activeField - 1 + fieldCount) % fieldCount
-			m.fields[m.activeField].Focus()
-			m.fieldsFocused = true
-			return m, textinput.Blink
+			// Move to previous field.
+			m.activeField = (m.activeField - 1 + fieldTotal) % fieldTotal
+			if m.activeField != fieldMetrics {
+				m.fields[m.activeField].Focus()
+				m.fieldsFocused = true
+				return m, textinput.Blink
+			}
+			return m, nil
 
 		case "up", "k":
-			m.activeField = (m.activeField - 1 + fieldCount) % fieldCount
+			m.activeField = (m.activeField - 1 + fieldTotal) % fieldTotal
 
 		case "down", "j":
-			m.activeField = (m.activeField + 1) % fieldCount
+			m.activeField = (m.activeField + 1) % fieldTotal
 
 		default:
-			// Any printable key re-enters the active field in editing mode.
-			if msg.Type == tea.KeyRunes {
+			// Any printable key re-enters the active text field in editing mode.
+			// Not applicable to the metrics toggle.
+			if msg.Type == tea.KeyRunes && m.activeField != fieldMetrics {
 				m.fields[m.activeField].Focus()
 				m.fieldsFocused = true
 				var cmd tea.Cmd
@@ -259,9 +307,13 @@ func (m SettingsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Pass non-key messages to the active text field (e.g. blink ticks).
-	var cmd tea.Cmd
-	m.fields[m.activeField], cmd = m.fields[m.activeField].Update(msg)
-	return m, cmd
+	// Guard: only forward to textinput fields, not to the metrics toggle.
+	if m.activeField != fieldMetrics {
+		var cmd tea.Cmd
+		m.fields[m.activeField], cmd = m.fields[m.activeField].Update(msg)
+		return m, cmd
+	}
+	return m, nil
 }
 
 // blurField removes focus from a field.
@@ -278,6 +330,9 @@ func (m SettingsModel) save() (tea.Model, tea.Cmd) {
 	portStr := strings.TrimSpace(m.fields[fieldPort].Value())
 	ctxStr := strings.TrimSpace(m.fields[fieldContextSize].Value())
 	gpuLayersStr := strings.TrimSpace(m.fields[fieldGPULayers].Value())
+	parallelSlotsStr := strings.TrimSpace(m.fields[fieldParallelSlots].Value())
+	kvCacheTypeK := strings.ToLower(strings.TrimSpace(m.fields[fieldKVCacheTypeK].Value()))
+	kvCacheTypeV := strings.ToLower(strings.TrimSpace(m.fields[fieldKVCacheTypeV].Value()))
 	hfToken := m.fields[fieldHFToken].Value()
 
 	// Validate.
@@ -304,11 +359,31 @@ func (m SettingsModel) save() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	parallelSlots, err := strconv.Atoi(parallelSlotsStr)
+	if err != nil || (parallelSlots < 1 && parallelSlots != -1) {
+		m.errMsg = "Parallel slots must be >= 1 or -1 (auto)"
+		return m, nil
+	}
+
+	if kvCacheTypeK != "" && !validKVCacheTypes[kvCacheTypeK] {
+		m.errMsg = "KV cache type K: use f32/f16/bf16/q8_0/q4_0/q4_1/iq4_nl/q5_0/q5_1 or leave empty"
+		return m, nil
+	}
+
+	if kvCacheTypeV != "" && !validKVCacheTypes[kvCacheTypeV] {
+		m.errMsg = "KV cache type V: use f32/f16/bf16/q8_0/q4_0/q4_1/iq4_nl/q5_0/q5_1 or leave empty"
+		return m, nil
+	}
+
 	// Apply.
 	m.cfg.ModelsDir = modelsDir
 	m.cfg.Server.Port = port
 	m.cfg.Server.ContextSize = ctx
 	m.cfg.Server.GPULayers = gpuLayers
+	m.cfg.Server.ParallelSlots = parallelSlots
+	m.cfg.Server.KVCacheTypeK = kvCacheTypeK
+	m.cfg.Server.KVCacheTypeV = kvCacheTypeV
+	m.cfg.Server.MetricsEnabled = m.metricsOn
 	m.cfg.HuggingFace.Token = hfToken
 
 	if err := m.cfg.Save(); err != nil {
@@ -355,33 +430,97 @@ func (m SettingsModel) View() string {
 	keyStyle := StyleKey
 	dimStyle := StyleDim
 
+	// isActive returns true when the given field index is currently highlighted.
+	isActive := func(i int) bool {
+		return !m.inGPUList && m.activeField == i
+	}
+
+	lbl := func(i int, label string) string {
+		if isActive(i) {
+			return activeLabelStyle.Render(label)
+		}
+		return labelStyle.Render(label)
+	}
+
 	// ── field labels ──────────────────────────────────────────────────────
-	fieldLabels := []string{
-		"Models directory",
-		"Server port",
-		"Context size",
-		"GPU layers",
-		"API token",
+	// Use a map so indexing by field constants is safe despite the fieldMetrics hole.
+	fieldLabels := map[int]string{
+		fieldModelsDir:     "Models directory",
+		fieldPort:          "Server port",
+		fieldContextSize:   "Context size",
+		fieldGPULayers:     "GPU layers",
+		fieldParallelSlots: "Parallel slots",
+		fieldKVCacheTypeK:  "KV cache type K",
+		fieldKVCacheTypeV:  "KV cache type V",
+		fieldHFToken:       "API token",
 	}
 
 	// ── content builder ───────────────────────────────────────────────────
 	var b strings.Builder
 
-	// General section.
+	// General section — basic server fields.
 	b.WriteString("\n")
 	b.WriteString("  " + sectionHeader.Render("General") + "\n")
 	b.WriteString("  " + divider + "\n")
 
-	for i := 0; i < fieldHFToken; i++ {
-		lbl := labelStyle.Render(fieldLabels[i])
-		if !m.inGPUList && m.activeField == i {
-			lbl = activeLabelStyle.Render(fieldLabels[i])
-		}
+	for _, i := range []int{fieldModelsDir, fieldPort, fieldContextSize, fieldGPULayers} {
 		suffix := ""
 		if i == fieldGPULayers && m.fields[i].Value() == "-1" {
 			suffix = dimStyle.Render("  (auto)")
 		}
-		b.WriteString(fmt.Sprintf("  %s %s%s\n", lbl, m.fields[i].View(), suffix))
+		b.WriteString(fmt.Sprintf("  %s %s%s\n", lbl(i, fieldLabels[i]), m.fields[i].View(), suffix))
+	}
+
+	b.WriteString("\n")
+
+	// Advanced section — parallel slots, KV cache, metrics.
+	b.WriteString("  " + sectionHeader.Render("Server (advanced)") + "\n")
+	b.WriteString("  " + divider + "\n")
+
+	// Parallel slots.
+	{
+		suffix := ""
+		if m.fields[fieldParallelSlots].Value() == "-1" {
+			suffix = dimStyle.Render("  (auto)")
+		}
+		b.WriteString(fmt.Sprintf("  %s %s%s\n",
+			lbl(fieldParallelSlots, fieldLabels[fieldParallelSlots]),
+			m.fields[fieldParallelSlots].View(), suffix))
+	}
+
+	// KV cache type K.
+	{
+		suffix := ""
+		if m.fields[fieldKVCacheTypeK].Value() == "" {
+			suffix = dimStyle.Render("  (default: f16)")
+		}
+		b.WriteString(fmt.Sprintf("  %s %s%s\n",
+			lbl(fieldKVCacheTypeK, fieldLabels[fieldKVCacheTypeK]),
+			m.fields[fieldKVCacheTypeK].View(), suffix))
+	}
+
+	// KV cache type V.
+	{
+		suffix := ""
+		if m.fields[fieldKVCacheTypeV].Value() == "" {
+			suffix = dimStyle.Render("  (default: f16)")
+		}
+		b.WriteString(fmt.Sprintf("  %s %s%s\n",
+			lbl(fieldKVCacheTypeV, fieldLabels[fieldKVCacheTypeV]),
+			m.fields[fieldKVCacheTypeV].View(), suffix))
+	}
+
+	// Metrics endpoint toggle.
+	{
+		metLbl := lbl(fieldMetrics, "Metrics endpoint")
+		var toggleStr string
+		if m.metricsOn {
+			toggleStr = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorGreen)).Render("[✓] enabled")
+		} else {
+			toggleStr = dimStyle.Render("[ ] disabled")
+		}
+		hint := dimStyle.Render("  (Space/Enter to toggle)")
+		b.WriteString(fmt.Sprintf("  %s %s%s\n", metLbl, toggleStr, hint))
 	}
 
 	b.WriteString("\n")
@@ -391,15 +530,11 @@ func (m SettingsModel) View() string {
 	b.WriteString("  " + divider + "\n")
 	{
 		i := fieldHFToken
-		lbl := labelStyle.Render(fieldLabels[i])
-		if !m.inGPUList && m.activeField == i {
-			lbl = activeLabelStyle.Render(fieldLabels[i])
-		}
 		suffix := ""
 		if m.fields[i].Value() != "" {
 			suffix = dimStyle.Render("  (masked)")
 		}
-		b.WriteString(fmt.Sprintf("  %s %s%s\n", lbl, m.fields[i].View(), suffix))
+		b.WriteString(fmt.Sprintf("  %s %s%s\n", lbl(i, fieldLabels[i]), m.fields[i].View(), suffix))
 	}
 
 	b.WriteString("\n")

@@ -61,11 +61,17 @@ type ServerLogMsg struct {
 
 // ModelRunConfig is the runtime configuration for a model load.
 type ModelRunConfig struct {
-	ModelPath   string
-	Port        int
-	ContextSize int
-	GPULayers   int
-	GPU         *hardware.GPU // nil = CPU only
+	ModelPath      string
+	Port           int
+	ContextSize    int
+	GPULayers      int
+	GPU            *hardware.GPU // nil = CPU only
+
+	// Advanced options.
+	ParallelSlots  int    // --parallel N; -1 = auto (passed only when != -1)
+	KVCacheTypeK   string // --cache-type-k TYPE; empty = omit (use llama-server default)
+	KVCacheTypeV   string // --cache-type-v TYPE; empty = omit
+	MetricsEnabled bool   // --metrics; expose Prometheus /metrics endpoint
 }
 
 const maxLogLines = 200
@@ -150,6 +156,20 @@ func (m *Manager) LoadModel(runCfg ModelRunConfig) error {
 		"--host", "127.0.0.1",
 	}
 	args = append(args, hardware.LlamaServerFlags(runCfg.GPU, runCfg.GPULayers)...)
+
+	// Advanced options — only appended when explicitly configured.
+	if runCfg.ParallelSlots != -1 {
+		args = append(args, "--parallel", strconv.Itoa(runCfg.ParallelSlots))
+	}
+	if runCfg.KVCacheTypeK != "" {
+		args = append(args, "--cache-type-k", runCfg.KVCacheTypeK)
+	}
+	if runCfg.KVCacheTypeV != "" {
+		args = append(args, "--cache-type-v", runCfg.KVCacheTypeV)
+	}
+	if runCfg.MetricsEnabled {
+		args = append(args, "--metrics")
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 

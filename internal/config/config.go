@@ -20,6 +20,12 @@ type Server struct {
 	GPULayers        int    `toml:"gpu_layers"`
 	SelectedGPUIndex int    `toml:"selected_gpu_index"`
 	LlamaServerPath  string `toml:"llama_server_path"` // override; empty = managed
+
+	// Advanced server settings.
+	ParallelSlots  int    `toml:"parallel_slots"`    // --parallel N; -1 = auto
+	KVCacheTypeK   string `toml:"kv_cache_type_k"`   // --cache-type-k; empty = llama-server default (f16)
+	KVCacheTypeV   string `toml:"kv_cache_type_v"`   // --cache-type-v; empty = llama-server default (f16)
+	MetricsEnabled bool   `toml:"metrics_enabled"`   // --metrics; expose Prometheus endpoint
 }
 
 // HuggingFace holds HF integration settings.
@@ -51,6 +57,10 @@ func Default() *Config {
 			GPULayers:        -1, // auto
 			SelectedGPUIndex: 0,
 			LlamaServerPath:  "",
+			ParallelSlots:    -1,    // auto
+			KVCacheTypeK:     "",    // llama-server default (f16)
+			KVCacheTypeV:     "",    // llama-server default (f16)
+			MetricsEnabled:   false, // disabled by default
 		},
 		HuggingFace: HuggingFace{
 			Token: "",
