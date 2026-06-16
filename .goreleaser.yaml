@@ -37,6 +37,29 @@ release:
   prerelease: auto
   name_template: "{{.ProjectName}} {{.Version}}"
 
+homebrew_casks:
+  - name: llama-tui
+    homepage: "https://github.com/AresiusXP/llama-tui"
+    description: "A TUI for managing and running local LLM models via llama-server"
+    binaries:
+      - llama-tui
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/llama-tui"]
+          end
+    url:
+      verified: "github.com/AresiusXP/llama-tui/"
+    repository:
+      owner: AresiusXP
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
+
 changelog:
   sort: asc
   filters:

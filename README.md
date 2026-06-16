@@ -40,26 +40,34 @@ A beautiful, k9s-inspired terminal UI for managing and running local LLM models 
 
 ## Installation
 
+### Homebrew (macOS and Linux)
+
+```bash
+brew install AresiusXP/tap/llama-tui
+```
+
+Works on macOS (Apple Silicon and Intel) and Linux via [Homebrew on Linux](https://docs.brew.sh/Homebrew-on-Linux).
+
 ### Download a release binary
 
 ```bash
 # macOS (Apple Silicon)
-curl -L https://github.com/patriciodanos/llama-tui/releases/latest/download/llama-tui_latest_darwin_arm64.tar.gz | tar xz
+curl -L https://github.com/AresiusXP/llama-tui/releases/latest/download/llama-tui_latest_darwin_arm64.tar.gz | tar xz
 ./llama-tui
 
 # macOS (Intel)
-curl -L https://github.com/patriciodanos/llama-tui/releases/latest/download/llama-tui_latest_darwin_amd64.tar.gz | tar xz
+curl -L https://github.com/AresiusXP/llama-tui/releases/latest/download/llama-tui_latest_darwin_amd64.tar.gz | tar xz
 ./llama-tui
 
 # Linux (x64)
-curl -L https://github.com/patriciodanos/llama-tui/releases/latest/download/llama-tui_latest_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/AresiusXP/llama-tui/releases/latest/download/llama-tui_latest_linux_amd64.tar.gz | tar xz
 ./llama-tui
 ```
 
 ### Build from source
 
 ```bash
-git clone https://github.com/patriciodanos/llama-tui
+git clone https://github.com/AresiusXP/llama-tui
 cd llama-tui
 make build
 ./dist/llama-tui
