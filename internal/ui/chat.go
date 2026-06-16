@@ -163,16 +163,14 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// View renders the chat panel.
+// View renders the chat panel content (without a border — RenderFrame adds that).
 func (m ChatModel) View() string {
 	if m.width == 0 || m.height == 0 {
 		return ""
 	}
 
-	// Border takes 2 cols/rows on each side
-	borderH := 2
-	borderV := 2
-	contentWidth := m.width - borderH
+	// No border here — RenderFrame provides the panel border.
+	contentWidth := m.width
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
@@ -203,8 +201,12 @@ func (m ChatModel) View() string {
 		Render("  [Enter] Send  [Esc] Close")
 	inputBar := inputStyle + m.input.View() + hint
 
-	// Fixed lines used: header(1) + divider(1) + blank(1) + divider(1) + inputBar(1) + borders(2)
-	fixedLines := 1 + 1 + 1 + 1 + 1 + borderV
+	// Fixed lines used: header(1) + divider(1) + blank(1) + divider(1) + inputBar(1).
+	// When waiting, the spinner takes an extra line below the messages area.
+	fixedLines := 1 + 1 + 1 + 1 + 1
+	if m.waiting {
+		fixedLines++
+	}
 	messagesHeight := m.height - fixedLines
 	if messagesHeight < 1 {
 		messagesHeight = 1
@@ -255,10 +257,7 @@ func (m ChatModel) View() string {
 		inputBar,
 	}, "\n")
 
-	return StylePanel.
-		Width(m.width - borderH).
-		Height(m.height - borderV).
-		Render(body)
+	return body
 }
 
 // renderMessages converts ChatEntry slice into wrapped display lines.

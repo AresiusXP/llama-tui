@@ -62,6 +62,8 @@ type Model struct {
 	search   ui.SearchModel
 	chat     ui.ChatModel
 	settings ui.SettingsModel
+	status   ui.StatusPanelModel
+	logs     ui.LogPanelModel
 
 	// server manager
 	manager *llamaserver.Manager
@@ -103,6 +105,16 @@ type Model struct {
 
 	// server log ring buffer (last 5 lines shown in status)
 	serverLogs []string
+
+	// metricsPolling is true while the periodic metrics poller is running.
+	// It prevents double-arming and stops re-arming after server stop.
+	metricsPolling bool
+
+	// metricsEpoch is incremented each time a model is started or stopped.
+	// ServerMetricsMsg carries the epoch it was launched with; messages from
+	// a prior epoch are silently discarded to prevent stale-data overwrites
+	// and goroutine leaks from old polling loops.
+	metricsEpoch int
 
 	// notification message (transient — shown in action bar)
 	notification string
@@ -291,6 +303,25 @@ func (m *Model) doInstallLlamaServer(info *updater.UpdateInfo) tea.Cmd {
 
 // ── Update ────────────────────────────────────────────────────────────────────
 
+// pollMetricsInterval is how often the metrics poller fires while a model is running.
+const pollMetricsInterval = 2 * time.Second
+
+// pollMetricsCmd fires FetchMetrics off the event loop after a short delay and
+// delivers the result as a ServerMetricsMsg tagged with the current epoch.
+// The caller re-arms it on each receipt while metricsPolling is true and the
+// epoch still matches, creating a self-renewing ticker that stops automatically
+// when the model is unloaded (epoch changes) or metricsPolling is cleared.
+func (m *Model) pollMetricsCmd(epoch int) tea.Cmd {
+	addr := m.manager.ActiveAddress()
+	metricsEnabled := m.cfg.Server.MetricsEnabled
+	return tea.Tick(pollMetricsInterval, func(_ time.Time) tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		metrics := llamaserver.FetchMetrics(ctx, addr, metricsEnabled)
+		return llamaserver.ServerMetricsMsg{Metrics: metrics, Epoch: epoch}
+	})
+}
+
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -299,13 +330,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.layout = ui.NewLayout(msg.Width, msg.Height)
+		m.layout = ui.NewLayout(msg.Width, msg.Height, m.cfg.Server.MetricsEnabled)
 		m.help = ui.NewHelp(msg.Width, msg.Height)
-		m.library = ui.NewLibrary(m.cfg.ModelsDir, m.layout.LeftWidth-4, m.layout.ContentHeight)
-		m.detail = ui.NewDetail(m.layout.RightWidth-4, m.layout.ContentHeight)
-		// Restore focus state on the newly-constructed sub-models. Without
-		// this, both panels start with focused=false and ignore all key events
-		// until the user presses Tab (which calls SetFocus explicitly).
+		firstResize := !m.ready
+		if firstResize {
+			// First resize: construct sub-models from scratch.
+			m.library = ui.NewLibrary(m.cfg.ModelsDir, m.layout.LeftWidth-4, m.layout.LeftTopHeight)
+			m.detail = ui.NewDetail(m.layout.RightWidth-4, m.layout.RightBottomHeight)
+			m.status = ui.NewStatusPanelModel()
+			m.status.LlamaVersion = m.cfg.Update.LlamaCPPBuildTag
+			m.status.AppVersion = m.version
+			m.status.GPU = m.activeGPUName()
+			m.logs = ui.NewLogPanelModel()
+		} else {
+			// Subsequent resize: use SetSize to preserve model state
+			// (cursor position, selected model, server status, active download, etc.)
+			m.library.SetSize(m.layout.LeftWidth-4, m.layout.LeftTopHeight)
+			m.detail.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
+			m.chat.SetSize(m.layout.RightWidth-2, m.layout.RightBottomHeight)
+		}
+		m.logs.SetSize(m.layout.LeftWidth-4, m.layout.LeftBottomHeight)
+		// Restore focus state on the sub-models.
 		m.library.SetFocus(m.leftFocus)
 		m.detail.SetFocus(!m.leftFocus)
 		if m.manager != nil {
@@ -316,8 +361,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			)
 		}
 		m.ready = true
-		// Initial library scan.
-		return m, refreshLibraryCmd(m.cfg.ModelsDir)
+		if firstResize {
+			return m, refreshLibraryCmd(m.cfg.ModelsDir)
+		}
 
 	// ── GPU detection ────────────────────────────────────────────────────
 	case gpusDetectedMsg:
@@ -330,6 +376,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.manager.ActiveAddress(),
 			m.activeGPUName(),
 		)
+		m.status.GPU = m.activeGPUName()
 
 	// ── Update check ─────────────────────────────────────────────────────
 	case updatesCheckedMsg:
@@ -371,6 +418,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.llamaHealthy = true
 		m.llamaChecked = true
 		m.cfg.Update.LlamaCPPBuildTag = msg.tag
+		m.status.LlamaVersion = msg.tag
 		_ = m.cfg.Save()
 
 		cmds := []tea.Cmd{
@@ -405,37 +453,95 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if active := m.manager.ActiveModel(); active != "" {
 			m.library.SetActiveModel(active)
 		}
+		// Sync detail panel with whatever model the library now has selected.
+		m.detail.SetModel(m.library.SelectedModel())
 
 	// ── llama-server events ──────────────────────────────────────────────
 	case llamaserver.ServerStartedMsg:
 		m.library.SetActiveModel(msg.Model)
 		m.detail.SetServerState("RUNNING", msg.Address, m.activeGPUName())
-		m.detail.SetLogs(m.serverLogs)
-		return m, m.notify(fmt.Sprintf("Model loaded · %s", msg.Address))
+		m.logs.SetLogs(m.serverLogs)
+		m.status.ModelLoaded = true
+		m.status.UsageStats = "Active"
+		m.status.GPU = m.activeGPUName()
+		m.status.LlamaVersion = m.cfg.Update.LlamaCPPBuildTag
+		m.status.AppVersion = m.version
+		m.status.MetricsEnabled = m.cfg.Server.MetricsEnabled
+		m.status.MetricsReady = false // first poll not yet returned
+		// Recompute layout immediately so the status panel grows to 2 lines
+		// when --metrics is enabled, without requiring a terminal resize.
+		m.layout = ui.NewLayout(m.width, m.height, m.cfg.Server.MetricsEnabled)
+		m.detail.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
+		m.chat.SetSize(m.layout.RightWidth-2, m.layout.RightBottomHeight)
+		// Start the metrics poller if not already running.
+		// Increment the epoch so any in-flight message from a prior session is ignored.
+		m.metricsEpoch++
+		cmds := []tea.Cmd{m.notify(fmt.Sprintf("Model loaded · %s", msg.Address))}
+		if !m.metricsPolling {
+			m.metricsPolling = true
+			cmds = append(cmds, m.pollMetricsCmd(m.metricsEpoch))
+		}
+		return m, tea.Batch(cmds...)
 
 	case llamaserver.ServerStoppedMsg:
 		m.library.SetActiveModel("")
 		m.detail.SetServerState("STOPPED", "", m.activeGPUName())
-		// Always push the final log lines to the detail panel so the user can
-		// see what llama-server printed just before it exited / crashed.
-		m.detail.SetLogs(m.serverLogs)
+		// Push final log lines to the log panel.
+		m.logs.SetLogs(m.serverLogs)
+		// Stop the metrics poller and clear live metrics.
+		// Increment epoch so any in-flight poll message is silently discarded.
+		m.metricsEpoch++
+		m.metricsPolling = false
+		m.status.ModelLoaded = false
+		m.status.UsageStats = "Idle"
+		m.status.GPU = m.activeGPUName()
+		m.status.LlamaVersion = m.cfg.Update.LlamaCPPBuildTag
+		m.status.AppVersion = m.version
+		m.status.MetricsEnabled = false
+		m.status.MetricsReady = false
+		m.status.GenerationTPS = 0
+		m.status.PromptTPS = 0
+		m.status.RequestsProcessing = 0
+		m.status.ActiveSlots = 0
+		m.status.TotalSlots = 0
+		// Recompute layout so the status panel shrinks back to 1 line.
+		m.layout = ui.NewLayout(m.width, m.height, false)
+		m.detail.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
+		m.chat.SetSize(m.layout.RightWidth-2, m.layout.RightBottomHeight)
 		var notifMsg string
 		if msg.Err != nil {
 			errStr := msg.Err.Error()
 			notifMsg = "Server stopped: " + errStr
-			m.detail.SetLastError(errStr)
+			m.logs.SetLastError(errStr)
 		} else {
 			notifMsg = "Model unloaded"
-			m.detail.SetLastError("") // clear previous error on clean unload
+			m.logs.SetLastError("") // clear previous error on clean unload
 		}
 		if err := m.library.Refresh(); err != nil {
 			notifMsg = "Library refresh failed: " + err.Error()
 		}
+		// Sync detail panel after library refresh.
+		m.detail.SetModel(m.library.SelectedModel())
 		return m, m.notify(notifMsg)
 
 	case llamaserver.ServerLogMsg:
-		m.serverLogs = appendLog(m.serverLogs, msg.Line, 20)
-		m.detail.SetLogs(m.serverLogs)
+		m.serverLogs = appendLog(m.serverLogs, msg.Line, 100)
+		m.logs.SetLogs(m.serverLogs)
+
+	// ── Metrics poll result ───────────────────────────────────────────────
+	case llamaserver.ServerMetricsMsg:
+		// Discard messages from stale polling loops (previous model sessions).
+		if !m.metricsPolling || msg.Epoch != m.metricsEpoch {
+			return m, nil
+		}
+		m.status.GenerationTPS = msg.Metrics.GenerationTPS
+		m.status.PromptTPS = msg.Metrics.PromptTPS
+		m.status.RequestsProcessing = msg.Metrics.RequestsProcessing
+		m.status.ActiveSlots = msg.Metrics.ActiveSlots
+		m.status.TotalSlots = msg.Metrics.TotalSlots
+		m.status.MetricsReady = true
+		// Re-arm the poller for the next tick.
+		return m, m.pollMetricsCmd(m.metricsEpoch)
 
 	// ── Load model request ───────────────────────────────────────────────
 	case ui.ModelLoadRequestMsg:
@@ -458,6 +564,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		runCfg := m.buildRunConfig(msg.Model.Path)
 		m.detail.SetServerState("STARTING", "", m.activeGPUName())
+		m.status.UsageStats = "Starting"
 		// Run LoadModel off the event loop — it may block up to 5s unloading a
 		// previous model. Success arrives via ServerStartedMsg.
 		return m, tea.Batch(
@@ -468,10 +575,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── Model load failed ─────────────────────────────────────────────────
 	case modelLoadFailedMsg:
 		m.detail.SetServerState("ERROR", "", m.activeGPUName())
+		m.status.UsageStats = "Error"
 		return m, m.notify("Failed to load: " + msg.err.Error())
 
 	// ── Unload model request ─────────────────────────────────────────────
 	case ui.ModelUnloadRequestMsg:
+		m.status.UsageStats = "Stopping"
 		go func() { _ = m.manager.UnloadModel() }()
 		return m, m.notify("Unloading model…")
 
@@ -498,6 +607,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := m.library.Refresh(); err != nil {
 			notifMsg = "Library refresh failed: " + err.Error()
 		}
+		// Sync detail with the model now selected after deletion.
+		// Only update if we just deleted the viewed model (detail was cleared above).
+		m.detail.SetModel(m.library.SelectedModel())
 		return m, m.notify(notifMsg)
 
 	// ── Confirm delete: no / cancel ───────────────────────────────────────
@@ -548,10 +660,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.library.UpdateDownloadProgress(filename, pct, bytesDone, total, msg.Progress.Done)
 			}
 		}
+		// Keep detail panel in sync with real-time download progress.
+		m.detail.SetModel(m.library.SelectedModel())
 		if msg.Progress.Done {
 			if err := m.library.Refresh(); err != nil {
 				return m, m.notify("Library refresh failed: " + err.Error())
 			}
+			m.detail.SetModel(m.library.SelectedModel())
 		}
 
 	// ── Download complete ─────────────────────────────────────────────────
@@ -560,6 +675,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := m.library.Refresh(); err != nil {
 			notifMsg = "Library refresh failed: " + err.Error()
 		}
+		m.detail.SetModel(m.library.SelectedModel())
 		return m, m.notify(notifMsg)
 
 	// ── Download error ────────────────────────────────────────────────────
@@ -576,7 +692,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sel := m.library.SelectedModel(); sel != nil {
 			modelName = sel.Name
 		}
-		m.chat = ui.NewChat(addr, modelName, m.layout.RightWidth-4, m.layout.ContentHeight)
+		m.chat = ui.NewChat(addr, modelName, m.layout.RightWidth-2, m.layout.RightBottomHeight)
 		m.view = viewChat
 		return m, m.chat.Init()
 
@@ -590,14 +706,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if newCfg, err := config.Load(); err == nil {
 				m.cfg = newCfg
 				m.selectedGPUIndex = m.cfg.Server.SelectedGPUIndex
-			m.library = ui.NewLibrary(m.cfg.ModelsDir, m.layout.LeftWidth-4, m.layout.ContentHeight)
-			m.library.SetFocus(m.leftFocus) // restore focus on the newly-constructed model
-			var notifMsg string
+				m.library = ui.NewLibrary(m.cfg.ModelsDir, m.layout.LeftWidth-4, m.layout.LeftTopHeight)
+				m.library.SetFocus(m.leftFocus) // restore focus on the newly-constructed model
+				// Restore active model badge if a model is currently loaded.
+				if active := m.manager.ActiveModel(); active != "" {
+					m.library.SetActiveModel(active)
+				}
+				var notifMsg string
 				if err := m.library.Refresh(); err != nil {
 					notifMsg = "Library refresh failed: " + err.Error()
 				} else {
 					notifMsg = "Settings saved"
 				}
+				// Sync detail panel with the current library selection after recreate.
+				m.detail.SetModel(m.library.SelectedModel())
 				return m, m.notify(notifMsg)
 			}
 		}
@@ -771,13 +893,15 @@ func (m *Model) View() string {
 	case viewSettings:
 		return m.settings.View()
 	case viewChat:
-		leftContent := m.library.View()
-		rightContent := m.chat.View()
-		return ui.RenderFrame(m.layout, leftContent, rightContent, m.actionBar(), m.statusBar(), false)
+		return ui.RenderFrame(m.layout,
+			m.library.View(), m.status.View(), m.logs.View(), m.chat.View(),
+			m.actionBar(), m.statusBar(), false)
 	}
 
 	// Main view: library left, detail right.
-	return ui.RenderFrame(m.layout, m.library.View(), m.detail.View(), m.actionBar(), m.statusBar(), m.leftFocus)
+	return ui.RenderFrame(m.layout,
+		m.library.View(), m.status.View(), m.logs.View(), m.detail.View(),
+		m.actionBar(), m.statusBar(), m.leftFocus)
 }
 
 // statusBar builds the one-line status bar.

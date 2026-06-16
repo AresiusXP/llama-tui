@@ -17,8 +17,6 @@ type DetailModel struct {
 	serverState string      // "STOPPED", "STARTING", "RUNNING", "ERROR"
 	address     string      // e.g. "http://localhost:8080"
 	gpuName     string      // active GPU name for display
-	logs        []string    // last N lines from llama-server stdout/stderr
-	lastError   string      // last non-nil error from ServerStoppedMsg
 	focused     bool
 	width       int
 	height      int
@@ -56,16 +54,6 @@ func (m *DetailModel) SetServerState(state, address, gpuName string) {
 	m.gpuName = gpuName
 }
 
-// SetLogs updates the server log lines shown at the bottom of the panel.
-func (m *DetailModel) SetLogs(lines []string) {
-	m.logs = lines
-}
-
-// SetLastError records the last crash/stop error for persistent display.
-func (m *DetailModel) SetLastError(errMsg string) {
-	m.lastError = errMsg
-}
-
 // Init implements tea.Model.
 func (m DetailModel) Init() tea.Cmd {
 	return nil
@@ -89,7 +77,7 @@ func (m DetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, func() tea.Msg { return ModelUnloadRequestMsg{} }
 		case "c":
 			return m, func() tea.Msg { return OpenChatMsg{} }
-		case "delete", "backspace":
+		case "delete", "backspace", "ctrl+d":
 			if m.model != nil {
 				lm := *m.model
 				return m, func() tea.Msg { return ModelDeleteRequestMsg{Model: lm} }
@@ -167,9 +155,6 @@ func (m DetailModel) View() string {
 		{"Ctrl+D", "Delete"},
 	})
 
-	// Server log section — shown whenever we have log lines.
-	logSection := m.renderLogSection(sep)
-
 	view := lipgloss.JoinVertical(
 		lipgloss.Left,
 		"  "+title,
@@ -180,34 +165,9 @@ func (m DetailModel) View() string {
 		"  "+sep,
 		"",
 		"  "+keysLine,
-		logSection,
 	)
 
 	return view
-}
-
-// renderLogSection builds the server log area shown at the bottom of the panel.
-func (m DetailModel) renderLogSection(sep string) string {
-	// Show an error banner if the last run crashed.
-	var errorBanner string
-	if m.lastError != "" {
-		errorBanner = "\n  " + StyleError.Render("✕ "+m.lastError)
-	}
-
-	if len(m.logs) == 0 && errorBanner == "" {
-		return ""
-	}
-
-	header := "\n\n  " + StyleDim.Render("─── SERVER LOG ") +
-		StyleDim.Render(strings.Repeat("─", max(0, m.width-22))) + "\n"
-
-	var lines []string
-	for _, l := range m.logs {
-		// Truncate long lines to fit the panel.
-		lines = append(lines, "  "+StyleDim.Render(truncate(l, m.width-6)))
-	}
-
-	return header + errorBanner + "\n" + strings.Join(lines, "\n")
 }
 
 // keyHint is a key+label pair for the hints bar.
