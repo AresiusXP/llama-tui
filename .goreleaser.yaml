@@ -24,7 +24,7 @@ builds:
 archives:
   - id: default
     name_template: "llama-tui_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    format: tar.gz
+    formats: ["tar.gz"]
     files:
       - README.md
       - LICENSE
