@@ -130,6 +130,76 @@ func homeDir() string {
 	return filepath.Join(os.TempDir(), appName)
 }
 
+// ModelConfig holds per-model server setting overrides.
+// Fields use pointer or zero-sentinel semantics so that "not set" is
+// distinguishable from an explicitly configured value:
+//   - ContextSize   0   → fall back to global Server.ContextSize
+//   - GPULayers    nil  → fall back to global Server.GPULayers  (non-nil overrides, including -1 for auto)
+//   - ParallelSlots 0   → fall back to global Server.ParallelSlots
+//   - KVCacheTypeK ""  → fall back to global Server.KVCacheTypeK
+//   - KVCacheTypeV ""  → fall back to global Server.KVCacheTypeV
+//   - Threads       0   → omit --threads flag entirely
+//   - BatchSize     0   → omit --batch-size flag (llama-server default: 2048)
+type ModelConfig struct {
+	ContextSize   int    `toml:"context_size,omitempty"`
+	GPULayers     *int   `toml:"gpu_layers,omitempty"`
+	ParallelSlots int    `toml:"parallel_slots,omitempty"`
+	KVCacheTypeK  string `toml:"kv_cache_type_k,omitempty"`
+	KVCacheTypeV  string `toml:"kv_cache_type_v,omitempty"`
+	Threads       int    `toml:"threads,omitempty"`
+	BatchSize     int    `toml:"batch_size,omitempty"`
+}
+
+// ModelOverrides maps a model filename (e.g. "mistral-7b-q4.gguf") to its
+// per-model configuration overrides.
+type ModelOverrides map[string]ModelConfig
+
+// modelOverridesFile is the TOML wrapper so the map is stored under [models].
+type modelOverridesFile struct {
+	Models ModelOverrides `toml:"models"`
+}
+
+// ModelOverridesFilePath returns the path to the per-model overrides file.
+func ModelOverridesFilePath() string {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, appName, "models.toml")
+	}
+	return filepath.Join(homeDir(), ".config", appName, "models.toml")
+}
+
+// LoadModelOverrides loads per-model overrides from models.toml.
+// If the file does not exist it returns an empty (non-nil) map without error.
+func LoadModelOverrides() (ModelOverrides, error) {
+	path := ModelOverridesFilePath()
+	out := ModelOverrides{}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return out, nil
+	}
+	var f modelOverridesFile
+	if _, err := toml.DecodeFile(path, &f); err != nil {
+		return nil, fmt.Errorf("decode model overrides: %w", err)
+	}
+	if f.Models != nil {
+		out = f.Models
+	}
+	return out, nil
+}
+
+// SaveModelOverrides persists per-model overrides to models.toml.
+func SaveModelOverrides(overrides ModelOverrides) error {
+	path := ModelOverridesFilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("open models file: %w", err)
+	}
+	defer file.Close()
+	enc := toml.NewEncoder(file)
+	return enc.Encode(modelOverridesFile{Models: overrides})
+}
+
 // ConfigFilePath returns the platform-appropriate config file path.
 func ConfigFilePath() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {

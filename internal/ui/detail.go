@@ -82,6 +82,11 @@ func (m DetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				lm := *m.model
 				return m, func() tea.Msg { return ModelDeleteRequestMsg{Model: lm} }
 			}
+		case "e":
+			if m.model != nil {
+				lm := *m.model
+				return m, func() tea.Msg { return OpenModelEditMsg{Model: lm} }
+			}
 		}
 	}
 
@@ -182,6 +187,7 @@ func (m DetailModel) View() string {
 		{"L", "Load"},
 		{"U", "Unload"},
 		{"C", "Chat"},
+		{"E", "Edit config"},
 		{"Ctrl+D", "Delete"},
 	})
 

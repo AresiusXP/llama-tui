@@ -38,6 +38,7 @@ func (m HelpModel) View() string {
 		{"Enter / l", "Load selected model"},
 		{"u", "Unload model"},
 		{"c", "Open chat panel"},
+		{"e", "Edit model config"},
 		{"d", "Download / search models"},
 		{"x", "Cancel / resume download"},
 		{"Ctrl+D", "Delete model file"},

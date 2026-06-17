@@ -72,6 +72,10 @@ type ModelRunConfig struct {
 	KVCacheTypeK   string // --cache-type-k TYPE; empty = omit (use llama-server default)
 	KVCacheTypeV   string // --cache-type-v TYPE; empty = omit
 	MetricsEnabled bool   // --metrics; expose Prometheus /metrics endpoint
+
+	// Per-model extras.
+	Threads   int // --threads N; 0 = omit flag entirely
+	BatchSize int // --batch-size N (-b); 0 = omit flag (llama-server default: 2048)
 }
 
 const maxLogLines = 200
@@ -169,6 +173,12 @@ func (m *Manager) LoadModel(runCfg ModelRunConfig) error {
 	}
 	if runCfg.MetricsEnabled {
 		args = append(args, "--metrics")
+	}
+	if runCfg.Threads > 0 {
+		args = append(args, "--threads", strconv.Itoa(runCfg.Threads))
+	}
+	if runCfg.BatchSize > 0 {
+		args = append(args, "--batch-size", strconv.Itoa(runCfg.BatchSize))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

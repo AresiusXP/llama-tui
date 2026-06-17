@@ -25,11 +25,12 @@ import (
 type activeView int
 
 const (
-	viewMain     activeView = iota
+	viewMain      activeView = iota
 	viewSearch
 	viewChat
 	viewSettings
 	viewHelp
+	viewModelEdit
 )
 
 // updateAvailable holds pending update notification.
@@ -56,14 +57,15 @@ type Model struct {
 	layout ui.Layout
 
 	// sub-models
-	help     ui.HelpModel
-	library  ui.LibraryModel
-	detail   ui.DetailModel
-	search   ui.SearchModel
-	chat     ui.ChatModel
-	settings ui.SettingsModel
-	status   ui.StatusPanelModel
-	logs     ui.LogPanelModel
+	help      ui.HelpModel
+	library   ui.LibraryModel
+	detail    ui.DetailModel
+	search    ui.SearchModel
+	chat      ui.ChatModel
+	settings  ui.SettingsModel
+	status    ui.StatusPanelModel
+	logs      ui.LogPanelModel
+	modelEdit ui.ModelEditModel
 
 	// server manager
 	manager *llamaserver.Manager
@@ -118,11 +120,20 @@ type Model struct {
 
 	// notification message (transient — shown in action bar)
 	notification string
+
+	// per-model configuration overrides (keyed by model filename)
+	modelOverrides config.ModelOverrides
 }
 
 // New creates the root application model.
 func New(cfg *config.Config, version string) *Model {
 	manager := llamaserver.NewManager(cfg)
+
+	overrides, err := config.LoadModelOverrides()
+	if err != nil {
+		// non-fatal: start with empty overrides; the error is visible on next save attempt
+		overrides = config.ModelOverrides{}
+	}
 
 	m := &Model{
 		cfg:              cfg,
@@ -131,6 +142,7 @@ func New(cfg *config.Config, version string) *Model {
 		view:             viewMain,
 		manager:          manager,
 		selectedGPUIndex: cfg.Server.SelectedGPUIndex,
+		modelOverrides:   overrides,
 	}
 
 	return m
@@ -348,6 +360,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.library.SetSize(m.layout.LeftWidth-4, m.layout.LeftTopHeight)
 			m.detail.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
 			m.chat.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
+			m.modelEdit.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
 		}
 		m.logs.SetSize(m.layout.LeftWidth-4, m.layout.LeftBottomHeight)
 		// Restore focus state on the sub-models.
@@ -477,6 +490,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layout = ui.NewLayout(m.width, m.height, m.cfg.Server.MetricsEnabled)
 		m.detail.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
 		m.chat.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
+		m.modelEdit.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
 		// Start the metrics poller if not already running.
 		// Increment the epoch so any in-flight message from a prior session is ignored.
 		m.metricsEpoch++
@@ -512,6 +526,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layout = ui.NewLayout(m.width, m.height, false)
 		m.detail.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
 		m.chat.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
+		m.modelEdit.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
 		var notifMsg string
 		if msg.Err != nil {
 			errStr := msg.Err.Error()
@@ -729,6 +744,45 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.view = viewMain
 
+	// ── Open model-edit panel ─────────────────────────────────────────────
+	case ui.OpenModelEditMsg:
+		ov := m.modelOverrides[msg.Model.Name]
+		globals := ui.GlobalDefaults{
+			ContextSize:   m.cfg.Server.ContextSize,
+			GPULayers:     m.cfg.Server.GPULayers,
+			ParallelSlots: m.cfg.Server.ParallelSlots,
+			KVCacheTypeK:  m.cfg.Server.KVCacheTypeK,
+			KVCacheTypeV:  m.cfg.Server.KVCacheTypeV,
+		}
+		m.modelEdit = ui.NewModelEdit(msg.Model, ov, globals, m.layout.RightWidth-4, m.layout.RightBottomHeight)
+		m.view = viewModelEdit
+		return m, m.modelEdit.Init()
+
+	// ── Close model-edit panel ────────────────────────────────────────────
+	case ui.CloseModelEditMsg:
+		m.view = viewMain
+		if msg.Saved && msg.Name != "" {
+			if m.modelOverrides == nil {
+				m.modelOverrides = config.ModelOverrides{}
+			}
+			// Copy the map before handing it to the background goroutine so
+			// that concurrent reads from buildRunConfig can't race with the
+			// goroutine's iteration inside SaveModelOverrides.
+			overridesCopy := make(config.ModelOverrides, len(m.modelOverrides)+1)
+			for k, v := range m.modelOverrides {
+				overridesCopy[k] = v
+			}
+			overridesCopy[msg.Name] = msg.Override
+			m.modelOverrides = overridesCopy
+			return m, tea.Batch(
+				func() tea.Msg {
+					_ = config.SaveModelOverrides(overridesCopy)
+					return nil
+				},
+				m.notify("Model config saved"),
+			)
+		}
+
 	// ── Global key events ─────────────────────────────────────────────────
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -772,6 +826,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	case viewHelp:
 		m.view = viewMain
 		return m, nil
+	case viewModelEdit:
+		nm, cmd := m.modelEdit.Update(msg)
+		if me, ok := nm.(ui.ModelEditModel); ok {
+			m.modelEdit = me
+		}
+		return m, cmd
 	}
 
 	// Global keys.
@@ -859,6 +919,12 @@ func (m *Model) delegateUpdate(msg tea.Msg) (*Model, tea.Cmd) {
 			m.settings = sm
 		}
 		cmds = append(cmds, cmd)
+	case viewModelEdit:
+		nm, cmd := m.modelEdit.Update(msg)
+		if me, ok := nm.(ui.ModelEditModel); ok {
+			m.modelEdit = me
+		}
+		cmds = append(cmds, cmd)
 	default:
 		// Pass to both panels (for spinner ticks etc.)
 		nm, cmd := m.library.Update(msg)
@@ -899,6 +965,10 @@ func (m *Model) View() string {
 	case viewChat:
 		return ui.RenderFrame(m.layout,
 			m.library.View(), m.status.View(), m.logs.View(), m.chat.View(),
+			m.actionBar(), m.statusBar(), false)
+	case viewModelEdit:
+		return ui.RenderFrame(m.layout,
+			m.library.View(), m.status.View(), m.logs.View(), m.modelEdit.View(),
 			m.actionBar(), m.statusBar(), false)
 	}
 
@@ -1002,12 +1072,14 @@ func (m *Model) actionBar() string {
 			actions = []action{
 				{"u", "Unload"},
 				{"c", "Chat"},
+				{"e", "Edit config"},
 				{"d", "Download more"},
 				{"Ctrl+D", "Delete"},
 			}
 		default: // StatusAvailable
 			actions = []action{
 				{"l", "Load"},
+				{"e", "Edit config"},
 				{"d", "Download more"},
 				{"Ctrl+D", "Delete"},
 			}
@@ -1078,7 +1150,8 @@ func (m *Model) activeGPUName() string {
 	return m.gpus[m.selectedGPUIndex].Name
 }
 
-// buildRunConfig creates a ModelRunConfig from current settings.
+// buildRunConfig creates a ModelRunConfig from current settings,
+// applying any per-model overrides on top of the global config.
 func (m *Model) buildRunConfig(modelPath string) llamaserver.ModelRunConfig {
 	var gpu *hardware.GPU
 	if len(m.gpus) > 0 {
@@ -1090,16 +1163,49 @@ func (m *Model) buildRunConfig(modelPath string) llamaserver.ModelRunConfig {
 		gpu = &g
 	}
 
+	// Start from global defaults.
+	ctxSize := m.cfg.Server.ContextSize
+	gpuLayers := m.cfg.Server.GPULayers
+	parallelSlots := m.cfg.Server.ParallelSlots
+	kvK := m.cfg.Server.KVCacheTypeK
+	kvV := m.cfg.Server.KVCacheTypeV
+	var threads int
+	var batchSize int
+
+	// Apply per-model overrides when present.
+	filename := filepath.Base(modelPath)
+	if ov, ok := m.modelOverrides[filename]; ok {
+		if ov.ContextSize > 0 {
+			ctxSize = ov.ContextSize
+		}
+		if ov.GPULayers != nil {
+			gpuLayers = *ov.GPULayers
+		}
+		if ov.ParallelSlots != 0 {
+			parallelSlots = ov.ParallelSlots
+		}
+		if ov.KVCacheTypeK != "" {
+			kvK = ov.KVCacheTypeK
+		}
+		if ov.KVCacheTypeV != "" {
+			kvV = ov.KVCacheTypeV
+		}
+		threads = ov.Threads
+		batchSize = ov.BatchSize
+	}
+
 	return llamaserver.ModelRunConfig{
 		ModelPath:      modelPath,
 		Port:           m.cfg.Server.Port,
-		ContextSize:    m.cfg.Server.ContextSize,
-		GPULayers:      m.cfg.Server.GPULayers,
+		ContextSize:    ctxSize,
+		GPULayers:      gpuLayers,
 		GPU:            gpu,
-		ParallelSlots:  m.cfg.Server.ParallelSlots,
-		KVCacheTypeK:   m.cfg.Server.KVCacheTypeK,
-		KVCacheTypeV:   m.cfg.Server.KVCacheTypeV,
+		ParallelSlots:  parallelSlots,
+		KVCacheTypeK:   kvK,
+		KVCacheTypeV:   kvV,
 		MetricsEnabled: m.cfg.Server.MetricsEnabled,
+		Threads:        threads,
+		BatchSize:      batchSize,
 	}
 }
 
