@@ -61,6 +61,7 @@ func (m HelpModel) View() string {
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(ColorAccent)).
+		BorderBackground(lipgloss.Color(ColorBg)).
 		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorText)).
 		Padding(1, 3)

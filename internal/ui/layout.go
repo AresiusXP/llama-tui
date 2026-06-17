@@ -1,6 +1,52 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+)
+
+// fillPanel normalises panel content so that every line begins with an explicit
+// Background(ColorBgPanel) escape code and is exactly innerWidth columns wide.
+//
+// Why this is necessary: when lipgloss renders a styled panel border around
+// content, it calls te.Styled(line) per line. Any inner style that emits a
+// reset sequence (\x1b[0m) mid-line clears the outer panel background for all
+// subsequent characters on that line. Terminals with a non-default background
+// colour (e.g. Kitty with background_opacity < 1 or a custom background colour)
+// then show the terminal's own background through those cells as "ghost blocks".
+//
+// By splitting the content into lines and re-rendering each line through a
+// base background style, we guarantee that every line starts fresh with an
+// explicit background colour, and that all remaining columns are filled with
+// background-coloured spaces — leaving no transparent cells for the terminal
+// background to bleed through.
+//
+// Each line is also hard-truncated to innerWidth *before* padding. This is a
+// safety net: if any panel emits content wider than its allotted width,
+// lipgloss would otherwise soft-wrap it into multiple physical lines (carrying
+// the line's background onto every wrapped fragment and overflowing the panel's
+// fixed Height). Truncating guarantees exactly one physical line per logical
+// line regardless of what a panel emits.
+func fillPanel(content string, innerWidth int) string {
+	if innerWidth < 0 {
+		innerWidth = 0
+	}
+	base := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
+		Width(innerWidth)
+
+	lines := strings.Split(content, "\n")
+	for i, l := range lines {
+		// Clip over-wide lines so lipgloss never soft-wraps them.
+		if lipgloss.Width(l) > innerWidth {
+			l = ansi.Truncate(l, innerWidth, "")
+		}
+		lines[i] = base.Render(l)
+	}
+	return strings.Join(lines, "\n")
+}
 
 // Layout holds computed panel dimensions for the 4-panel layout.
 type Layout struct {
@@ -28,6 +74,11 @@ type Layout struct {
 // borderOverhead is the number of rows/columns consumed by a rounded border
 // (1 top + 1 bottom = 2 rows; 1 left + 1 right = 2 cols).
 const borderOverhead = 2
+
+// panelHPadding is the horizontal padding (in columns) applied inside each
+// panel border by StylePanel/StylePanelFocused (Padding(0, 1)). The text
+// content area is therefore PanelWidth − borderOverhead − 2*panelHPadding.
+const panelHPadding = 1
 
 // NewLayout computes panel dimensions from terminal size.
 //
@@ -123,6 +174,19 @@ func RenderFrame(layout Layout, libraryContent, statusContent, logContent, detai
 	} else {
 		rightStyle = StylePanelFocused
 	}
+
+	// Normalise content: stamp ColorBgPanel on every cell of every line so
+	// that inner ANSI resets never leave transparent cells. The fill width is
+	// the panel's text content area: PanelWidth − border (2) − horizontal
+	// padding (2). This matches the width the sub-models lay out their content
+	// at (see app.go: LeftWidth−4 / RightWidth−4).
+	contentLeft := layout.LeftWidth - borderOverhead - 2*panelHPadding
+	contentRight := layout.RightWidth - borderOverhead - 2*panelHPadding
+
+	libraryContent = fillPanel(libraryContent, contentLeft)
+	logContent = fillPanel(logContent, contentLeft)
+	statusContent = fillPanel(statusContent, contentRight)
+	detailContent = fillPanel(detailContent, contentRight)
 
 	// Left column: library (top) + log (bottom).
 	leftTopPanel := leftStyle.

@@ -365,6 +365,8 @@ func (m SearchModel) View() string {
 		Width(boxWidth).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(ColorAccent)).
+		BorderBackground(lipgloss.Color(ColorBg)).
+		Background(lipgloss.Color(ColorBgPanel)).
 		Padding(1, 2)
 
 	inner := lipgloss.JoinVertical(
@@ -382,6 +384,7 @@ func (m SearchModel) View() string {
 		m.width, m.height,
 		lipgloss.Center, lipgloss.Center,
 		boxStyle.Render(inner),
+		lipgloss.WithWhitespaceBackground(lipgloss.Color(ColorBg)),
 	)
 }
 

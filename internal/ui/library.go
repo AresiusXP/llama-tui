@@ -294,69 +294,155 @@ func (m LibraryModel) View() string {
 // renderModelRow renders a single model list entry.
 // spinnerFrame is used to animate the download spinner.
 func renderModelRow(lm LocalModel, selected bool, width, spinnerFrame int) string {
+	// Choose background for all row elements — selected rows use ColorBgSelected
+	// so every styled token in the row matches the highlight background.
+	rowBg := lipgloss.Color(ColorBgPanel)
+	if selected {
+		rowBg = lipgloss.Color(ColorBgSelected)
+	}
+
+	// Per-row style copies so every token has an explicit background.
+	badgeLoaded := StyleBadgeLoaded.Copy().Background(rowBg)
+	badgeDownload := StyleBadgeDownload.Copy().Background(rowBg)
+	badgeAvail := StyleBadgeAvail.Copy().Background(rowBg)
+	textStyle := StyleBold.Copy().Background(rowBg)
+	dimStyle := StyleDim.Copy().Background(rowBg)
+
 	// Status badge.
 	var badge string
 	switch lm.Status {
 	case StatusLoaded:
-		badge = StyleBadgeLoaded.Render("●")
+		badge = badgeLoaded.Render("●")
 	case StatusDownloading:
 		frame := spinnerFrames[spinnerFrame%len(spinnerFrames)]
-		badge = StyleBadgeDownload.Render(frame)
+		badge = badgeDownload.Render(frame)
 	case StatusPaused:
-		badge = StyleBadgeDownload.Render("⏸")
+		badge = badgeDownload.Render("⏸")
 	default:
-		badge = StyleBadgeAvail.Render("○")
+		badge = badgeAvail.Render("○")
 	}
 
-	// Build the display line.
+	// Quant column value.
 	quant := lm.Quant
 	if quant == "" {
 		quant = "—"
 	}
 
-	// Size column: during active download or pause show "done / total".
+	// Size column. While downloading/paused, the inline progress bar conveys
+	// progress, so keep this column compact (total size only) to leave room.
 	sizeStr := lm.SizeDisplay
 	if (lm.Status == StatusDownloading || lm.Status == StatusPaused) && lm.TotalBytes > 0 {
-		sizeStr = FormatSize(lm.SizeBytes) + " / " + FormatSize(lm.TotalBytes)
+		sizeStr = FormatSize(lm.TotalBytes)
 	}
 
-	line := fmt.Sprintf("%s  %-40s  %-10s  %s", badge, truncate(lm.Name, 40), quant, sizeStr)
-
-	// Append progress bar if downloading or paused.
-	if lm.Status == StatusDownloading || lm.Status == StatusPaused {
-		bar := renderMiniProgressBar(lm.Progress, 8)
-		pct := int(lm.Progress * 100)
-		line += fmt.Sprintf("  %s %d%%", bar, pct)
+	// ── Responsive column widths ────────────────────────────────────────────
+	// The row must never exceed the panel content width, otherwise the panel
+	// wraps it (see fillPanel) and the row's background bleeds onto the wrapped
+	// fragments. Fixed pieces: badge(1) + 3 two-space gaps(6) = 7 columns.
+	// The remainder is split between name (flexible) and the quant+size columns.
+	const (
+		gap       = 2
+		quantW    = 10
+		fixedCols = 1 + gap*3 + quantW // badge + 3 gaps + quant column
+		// Progress area: spacer(2) + bar(8) + space(1) + pct(4) = 15 columns.
+		progressCols = gap + 8 + 1 + 4
+	)
+	avail := width
+	if avail < 1 {
+		avail = 1
 	}
 
-	if selected {
-		// Pad to width so the highlight covers the full row.
-		if width > 0 {
-			line = StyleSelected.Width(width - 4).Render(line)
-		} else {
-			line = StyleSelected.Render(line)
+	// Reserve space for an inline progress bar up front so the name column
+	// shrinks to make room (a download/pause row shows a bar at the end).
+	showProgress := lm.Status == StatusDownloading || lm.Status == StatusPaused
+	progressW := 0
+	if showProgress {
+		progressW = progressCols
+	}
+
+	// Reserve space for the size string (clamped), then give the rest to name.
+	sizeW := lipgloss.Width(sizeStr)
+	nameW := avail - fixedCols - sizeW - progressW
+
+	// If the bar doesn't fit, drop it and reclaim its space for the name.
+	if nameW < 8 && showProgress {
+		showProgress = false
+		progressW = 0
+		nameW = avail - fixedCols - sizeW
+	}
+
+	if nameW < 8 {
+		// Very narrow panel: drop quant/size and let the name take what's left.
+		nameW = avail - 1 - gap // badge + one gap
+		if nameW < 1 {
+			nameW = 1
 		}
+		namePart := textStyle.Width(nameW).Render(truncate(lm.Name, nameW))
+		line := badge + dimStyle.Render("  ") + namePart
+		return clampRow(line, width, selected, rowBg)
 	}
 
+	namePart := textStyle.Width(nameW).Render(truncate(lm.Name, nameW))
+	quantPart := dimStyle.Width(quantW).Render(truncate(quant, quantW))
+	sizePart := dimStyle.Render(sizeStr)
+	spacer := dimStyle.Render("  ")
+
+	line := badge + spacer + namePart + spacer + quantPart + spacer + sizePart
+
+	// Append progress bar if downloading or paused and there is room.
+	if showProgress {
+		bar := renderMiniProgressBar(lm.Progress, 8, rowBg)
+		pct := dimStyle.Render(fmt.Sprintf("%3d%%", int(lm.Progress*100)))
+		line += spacer + bar + dimStyle.Render(" ") + pct
+	}
+
+	return clampRow(line, width, selected, rowBg)
+}
+
+// clampRow pads a selected row to the full content width (so the highlight
+// covers it). Truncation is handled centrally by fillPanel, so this only pads.
+func clampRow(line string, width int, selected bool, rowBg lipgloss.Color) string {
+	if width <= 0 {
+		return line
+	}
+	if selected {
+		// Background-only style: pad to width without re-styling content.
+		return lipgloss.NewStyle().Background(rowBg).Width(width).Render(line)
+	}
+	// Non-selected rows are left as-is; fillPanel pads them to the panel width.
 	return line
 }
 
 // renderMiniProgressBar renders a mini inline progress bar of barWidth chars.
-func renderMiniProgressBar(progress float64, barWidth int) string {
+// bg is the background color to use (matches the row's highlight state).
+func renderMiniProgressBar(progress float64, barWidth int, bg lipgloss.Color) string {
 	filled := int(progress * float64(barWidth))
 	if filled > barWidth {
 		filled = barWidth
 	}
 	bar := strings.Repeat("▓", filled) + strings.Repeat("░", barWidth-filled)
-	return StyleBadgeDownload.Render(bar)
+	return StyleBadgeDownload.Copy().Background(bg).Render(bar)
 }
 
-// truncate shortens s to maxLen, appending "…" if needed.
+// truncate shortens s to maxLen display columns, appending "…" if needed.
+// It is rune-aware so multi-byte names are measured and cut correctly.
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	if maxLen <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen-1] + "…"
+	runes := []rune(s)
+	// Reserve one column for the ellipsis.
+	cut := maxLen - 1
+	if cut < 0 {
+		cut = 0
+	}
+	if cut > len(runes) {
+		cut = len(runes)
+	}
+	return string(runes[:cut]) + "…"
 }
 
 // MarkPaused marks a downloading model as paused in-place, preserving progress

@@ -55,22 +55,28 @@ func init() {
 		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorText)).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(ColorBorder))
+		BorderForeground(lipgloss.Color(ColorBorder)).
+		BorderBackground(lipgloss.Color(ColorBg)).
+		Padding(0, 1)
 
 	StylePanelFocused = lipgloss.NewStyle().
 		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorText)).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(ColorAccent))
+		BorderForeground(lipgloss.Color(ColorAccent)).
+		BorderBackground(lipgloss.Color(ColorBg)).
+		Padding(0, 1)
 
 	// StyleTitle is the legacy title style (kept for back-compat with search/settings overlays).
 	StyleTitle = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorAccent)).
 		Bold(true)
 
 	// StylePanelTitle is the consistent in-content panel section header.
 	// Green + bold — matches the llmserve aesthetic for panel labels.
 	StylePanelTitle = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorGreen)).
 		Bold(true)
 
@@ -93,51 +99,64 @@ func init() {
 		Padding(0, 1)
 
 	StyleBadgeLoaded = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorGreen)).
 		Bold(true)
 
 	StyleBadgeRunning = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorGreen)).
 		Bold(true)
 
 	StyleBadgeStopped = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorRed)).
 		Bold(true)
 
 	StyleBadgeDownload = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorYellow)).
 		Bold(true)
 
 	// StyleBadgeAvail — full-brightness text so "○ AVAILABLE" is actually readable.
 	StyleBadgeAvail = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorText))
 
 	StyleKey = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorCyan)).
 		Bold(true)
 
 	StyleDim = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorTextDim))
 
 	// StyleMuted is even dimmer than StyleDim — for timestamps and very secondary metadata.
 	StyleMuted = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorTextMuted))
 
 	StyleError = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorRed))
 
 	// StyleWarning is for log warning lines and caution states.
 	StyleWarning = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorYellow))
 
 	StyleSuccess = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorGreen))
 
 	// StyleLogInfo is full-brightness text for important log events (model loaded, listening, etc.).
 	StyleLogInfo = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorText))
 
 	StyleBold = lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorText)).
 		Bold(true)
 }

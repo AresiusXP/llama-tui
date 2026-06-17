@@ -47,10 +47,13 @@ func NewChat(serverAddr, modelName string, width, height int) ChatModel {
 	ti.Placeholder = "Type your message..."
 	ti.Focus()
 	ti.CharLimit = 2000
+	ti.PromptStyle = lipgloss.NewStyle().Background(lipgloss.Color(ColorBgPanel)).Foreground(lipgloss.Color(ColorTextDim))
+	ti.TextStyle = lipgloss.NewStyle().Background(lipgloss.Color(ColorBgPanel)).Foreground(lipgloss.Color(ColorText))
+	ti.PlaceholderStyle = lipgloss.NewStyle().Background(lipgloss.Color(ColorBgPanel)).Foreground(lipgloss.Color(ColorTextMuted))
 
 	sp := spinner.New()
 	sp.Spinner = spinner.MiniDot
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorYellow))
+	sp.Style = lipgloss.NewStyle().Background(lipgloss.Color(ColorBgPanel)).Foreground(lipgloss.Color(ColorYellow))
 
 	return ChatModel{
 		messages:   []ChatEntry{},
@@ -185,9 +188,11 @@ func (m ChatModel) View() string {
 
 	// Input bar (fixed height: 1 line + padding)
 	inputStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorTextDim)).
 		Render("> ")
 	hint := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorTextDim)).
 		Render("  [Enter] Send  [Esc] Close")
 	inputBar := inputStyle + m.input.View() + hint
@@ -235,6 +240,7 @@ func (m ChatModel) View() string {
 	spinnerLine := ""
 	if m.waiting {
 		spinnerLine = "\n" + lipgloss.NewStyle().
+			Background(lipgloss.Color(ColorBgPanel)).
 			Foreground(lipgloss.Color(ColorYellow)).
 			Render(m.spinner.View()+" Waiting for response...")
 	}
@@ -261,23 +267,29 @@ func (m ChatModel) renderMessages(contentWidth int) []string {
 		wrapWidth = 10
 	}
 
+	// indentStr is a background-bearing space indent for continuation lines.
+	indentStr := lipgloss.NewStyle().Background(lipgloss.Color(ColorBgPanel)).Render(strings.Repeat(" ", labelWidth+1))
+	// spacer between label and first line of content.
+	labelSpacer := lipgloss.NewStyle().Background(lipgloss.Color(ColorBgPanel)).Render(" ")
+
 	for _, entry := range m.messages {
 		switch entry.Role {
 		case "user":
 			label := lipgloss.NewStyle().
+				Background(lipgloss.Color(ColorBgPanel)).
 				Foreground(lipgloss.Color(ColorCyan)).
 				Bold(true).
 				Render("You:")
 			wrapped := wrapText(entry.Content, wrapWidth)
 			for i, line := range wrapped {
 				styledLine := lipgloss.NewStyle().
+					Background(lipgloss.Color(ColorBgPanel)).
 					Foreground(lipgloss.Color(ColorCyan)).
 					Render(line)
 				if i == 0 {
-					lines = append(lines, label+" "+styledLine)
+					lines = append(lines, label+labelSpacer+styledLine)
 				} else {
-					indent := strings.Repeat(" ", labelWidth+1)
-					lines = append(lines, indent+styledLine)
+					lines = append(lines, indentStr+styledLine)
 				}
 			}
 
@@ -285,11 +297,13 @@ func (m ChatModel) renderMessages(contentWidth int) []string {
 			var label string
 			if entry.IsError {
 				label = lipgloss.NewStyle().
+					Background(lipgloss.Color(ColorBgPanel)).
 					Foreground(lipgloss.Color(ColorRed)).
 					Bold(true).
 					Render("AI:")
 			} else {
 				label = lipgloss.NewStyle().
+					Background(lipgloss.Color(ColorBgPanel)).
 					Foreground(lipgloss.Color(ColorAccent)).
 					Bold(true).
 					Render("AI:")
@@ -301,14 +315,14 @@ func (m ChatModel) renderMessages(contentWidth int) []string {
 					styledLine = StyleError.Render(line)
 				} else {
 					styledLine = lipgloss.NewStyle().
+						Background(lipgloss.Color(ColorBgPanel)).
 						Foreground(lipgloss.Color(ColorText)).
 						Render(line)
 				}
 				if i == 0 {
-					lines = append(lines, label+" "+styledLine)
+					lines = append(lines, label+labelSpacer+styledLine)
 				} else {
-					indent := strings.Repeat(" ", labelWidth+1)
-					lines = append(lines, indent+styledLine)
+					lines = append(lines, indentStr+styledLine)
 				}
 			}
 		}

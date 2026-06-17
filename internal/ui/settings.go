@@ -93,9 +93,9 @@ func NewSettings(cfg *config.Config, gpus []hardware.GPU, width, height int) Set
 		ti.Placeholder = d.placeholder
 		ti.SetValue(d.value)
 		ti.Width = 40
-		ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorTextDim))
-		ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorText))
-		ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorTextMuted))
+		ti.PromptStyle = lipgloss.NewStyle().Background(lipgloss.Color(ColorBgPanel)).Foreground(lipgloss.Color(ColorTextDim))
+		ti.TextStyle = lipgloss.NewStyle().Background(lipgloss.Color(ColorBgPanel)).Foreground(lipgloss.Color(ColorText))
+		ti.PlaceholderStyle = lipgloss.NewStyle().Background(lipgloss.Color(ColorBgPanel)).Foreground(lipgloss.Color(ColorTextMuted))
 		fields[i] = ti
 	}
 
@@ -400,30 +400,37 @@ func (m SettingsModel) save() (tea.Model, tea.Cmd) {
 func (m SettingsModel) View() string {
 	// ── styles ────────────────────────────────────────────────────────────
 	sectionHeader := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorAccent)).
 		Bold(true)
 
 	divider := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorBorder)).
 		Render(strings.Repeat("─", 42))
 
 	labelStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorTextDim)).
 		Width(22)
 
 	activeLabelStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorAccent)).
 		Width(22)
 
 	gpuDotActive := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorGreen)).
 		Render("●")
 
 	gpuDotInactive := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorTextMuted)).
 		Render("●")
 
 	badgeStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(ColorBgPanel)).
 		Foreground(lipgloss.Color(ColorAccent2)).
 		Bold(true)
 
@@ -515,7 +522,7 @@ func (m SettingsModel) View() string {
 		metLbl := lbl(fieldMetrics, "Metrics endpoint")
 		var toggleStr string
 		if m.metricsOn {
-			toggleStr = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorGreen)).Render("[✓] enabled")
+			toggleStr = lipgloss.NewStyle().Background(lipgloss.Color(ColorBgPanel)).Foreground(lipgloss.Color(ColorGreen)).Render("[✓] enabled")
 		} else {
 			toggleStr = dimStyle.Render("[ ] disabled")
 		}
@@ -550,6 +557,7 @@ func (m SettingsModel) View() string {
 			cursor := "  "
 			if m.inGPUList && m.gpuCursor == i {
 				cursor = lipgloss.NewStyle().
+					Background(lipgloss.Color(ColorBgPanel)).
 					Foreground(lipgloss.Color(ColorAccent)).
 					Render("▸ ")
 			}
@@ -633,5 +641,6 @@ func (m SettingsModel) View() string {
 		m.width, m.height,
 		lipgloss.Center, lipgloss.Center,
 		panel,
+		lipgloss.WithWhitespaceBackground(lipgloss.Color(ColorBg)),
 	)
 }

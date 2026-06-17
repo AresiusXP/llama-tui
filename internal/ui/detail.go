@@ -151,26 +151,30 @@ func (m DetailModel) View() string {
 	// Downloaded date.
 	downloaded := lm.DownloadedAt.Format("2006-01-02")
 
+	// indent is a styled two-space prefix used for all field rows.
+	indent := StyleDim.Render("  ")
+
 	// Core fields.
 	fields := []string{
-		fmt.Sprintf("  %s%s", fieldLabel("Quantization"), lm.Quant),
-		fmt.Sprintf("  %s%s", fieldLabel("Size"), lm.SizeDisplay),
-		fmt.Sprintf("  %s%s", fieldLabel("Downloaded"), downloaded),
-		fmt.Sprintf("  %s%s", fieldLabel("Status"), statusStr),
+		indent + fieldLabel("Quantization") + StyleDim.Render(lm.Quant),
+		indent + fieldLabel("Size") + StyleDim.Render(lm.SizeDisplay),
+		indent + fieldLabel("Downloaded") + StyleDim.Render(downloaded),
+		indent + fieldLabel("Status") + statusStr,
 	}
 
 	// Address row — only shown when server is running.
 	if m.address != "" {
-		fields = append(fields, fmt.Sprintf("  %s%s", fieldLabel("Address"), StyleKey.Render(m.address)))
+		fields = append(fields, indent+fieldLabel("Address")+StyleKey.Render(m.address))
 	}
 
 	// Path row.
-	fields = append(fields, fmt.Sprintf("  %s%s", fieldLabel("Path"), StyleDim.Render(truncatePath(lm.Path, w-labelW-6))))
+	fields = append(fields, indent+fieldLabel("Path")+StyleDim.Render(truncatePath(lm.Path, w-labelW-6)))
 
-	// GPU line.
+	// GPU line — appended separately after fields so we can insert a blank line.
+	var gpuLine string
 	if m.gpuName != "" {
-		gpu := fmt.Sprintf("%s · Metal", m.gpuName)
-		fields = append(fields, fmt.Sprintf("\n  %s%s", fieldLabel("GPU"), gpu))
+		gpu := StyleDim.Render(fmt.Sprintf("%s · Metal", m.gpuName))
+		gpuLine = indent + fieldLabel("GPU") + gpu
 	}
 
 	// Action keys.
@@ -181,18 +185,25 @@ func (m DetailModel) View() string {
 		{"Ctrl+D", "Delete"},
 	})
 
+	// panelDim is a helper for bare spaces/separators inside the panel.
+	panelDim := func(s string) string { return StyleDim.Render(s) }
+
 	parts := []string{
 		titleLine,
 		sep,
-		"  " + modelName,
-		"  " + innerSep,
+		panelDim("  ") + modelName,
+		panelDim("  ") + innerSep,
 		"",
 	}
 	parts = append(parts, fields...)
+	// GPU line gets a blank separator before it.
+	if gpuLine != "" {
+		parts = append(parts, "", gpuLine)
+	}
 	parts = append(parts,
-		"  "+innerSep,
+		panelDim("  ")+innerSep,
 		"",
-		"  "+keysLine,
+		panelDim("  ")+keysLine,
 	)
 
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
@@ -206,11 +217,12 @@ type keyHint struct {
 
 // buildKeyHints renders a row of [Key] Label hints.
 func buildKeyHints(hints []keyHint) string {
+	sep := StyleDim.Render("    ")
 	parts := make([]string, len(hints))
 	for i, h := range hints {
-		parts[i] = StyleKey.Render("["+h.key+"]") + " " + h.label
+		parts[i] = StyleKey.Render("["+h.key+"]") + StyleDim.Render(" "+h.label)
 	}
-	return strings.Join(parts, "    ")
+	return strings.Join(parts, sep)
 }
 
 // truncatePath shortens a path for display.

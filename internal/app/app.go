@@ -347,7 +347,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// (cursor position, selected model, server status, active download, etc.)
 			m.library.SetSize(m.layout.LeftWidth-4, m.layout.LeftTopHeight)
 			m.detail.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
-			m.chat.SetSize(m.layout.RightWidth-2, m.layout.RightBottomHeight)
+			m.chat.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
 		}
 		m.logs.SetSize(m.layout.LeftWidth-4, m.layout.LeftBottomHeight)
 		// Restore focus state on the sub-models.
@@ -476,7 +476,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// when --metrics is enabled, without requiring a terminal resize.
 		m.layout = ui.NewLayout(m.width, m.height, m.cfg.Server.MetricsEnabled)
 		m.detail.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
-		m.chat.SetSize(m.layout.RightWidth-2, m.layout.RightBottomHeight)
+		m.chat.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
 		// Start the metrics poller if not already running.
 		// Increment the epoch so any in-flight message from a prior session is ignored.
 		m.metricsEpoch++
@@ -511,7 +511,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Recompute layout so the status panel shrinks back to 1 line.
 		m.layout = ui.NewLayout(m.width, m.height, false)
 		m.detail.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
-		m.chat.SetSize(m.layout.RightWidth-2, m.layout.RightBottomHeight)
+		m.chat.SetSize(m.layout.RightWidth-4, m.layout.RightBottomHeight)
 		var notifMsg string
 		if msg.Err != nil {
 			errStr := msg.Err.Error()
@@ -696,7 +696,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sel := m.library.SelectedModel(); sel != nil {
 			modelName = sel.Name
 		}
-		m.chat = ui.NewChat(addr, modelName, m.layout.RightWidth-2, m.layout.RightBottomHeight)
+		m.chat = ui.NewChat(addr, modelName, m.layout.RightWidth-4, m.layout.RightBottomHeight)
 		m.view = viewChat
 		return m, m.chat.Init()
 
@@ -1038,18 +1038,20 @@ func (m *Model) actionBar() string {
 	actions = append(actions, globals...)
 
 	// Render each action as "<key> desc".
+	actionKeyStyle := ui.StyleKey.Copy().Background(lipgloss.Color(ui.ColorBg))
+	actionDimStyle := ui.StyleDim.Copy().Background(lipgloss.Color(ui.ColorBg))
 	var parts []string
 	for _, a := range actions {
-		key := ui.StyleKey.Render("<" + a.key + ">")
-		desc := ui.StyleDim.Render(a.desc)
+		key := actionKeyStyle.Render("<" + a.key + ">")
+		desc := actionDimStyle.Render(a.desc)
 		parts = append(parts, key+" "+desc)
 	}
 	actionsStr := strings.Join(parts, "  ")
 
 	// Prepend notification if set (auto-clears after 3s via notify()).
 	if m.notification != "" {
-		notifStr := ui.StyleSuccess.Render("● " + m.notification)
-		sep := ui.StyleDim.Render("  │  ")
+		notifStr := ui.StyleSuccess.Copy().Background(lipgloss.Color(ui.ColorBg)).Render("● " + m.notification)
+		sep := actionDimStyle.Render("  │  ")
 		return notifStr + sep + actionsStr
 	}
 
