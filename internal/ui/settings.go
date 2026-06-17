@@ -9,8 +9,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/patriciodanos/llama-tui/internal/config"
-	"github.com/patriciodanos/llama-tui/internal/hardware"
+	"github.com/AresiusXP/llama-tui/internal/config"
+	"github.com/AresiusXP/llama-tui/internal/hardware"
 )
 
 // CloseSettingsMsg is sent when the user closes settings (Esc or saves).

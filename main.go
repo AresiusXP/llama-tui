@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/patriciodanos/llama-tui/cmd"
+	"github.com/AresiusXP/llama-tui/cmd"
 )
 
 func main() {

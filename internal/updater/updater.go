@@ -14,11 +14,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patriciodanos/llama-tui/internal/hardware"
+	"github.com/AresiusXP/llama-tui/internal/hardware"
 )
 
 const (
-	llamaTUIOwner = "patriciodanos"
+	llamaTUIOwner = "AresiusXP"
 	llamaTUIRepo  = "llama-tui"
 	llamaCPPOwner = "ggml-org"
 	llamaCPPRepo  = "llama.cpp"

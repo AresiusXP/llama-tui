@@ -13,12 +13,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/patriciodanos/llama-tui/internal/config"
-	"github.com/patriciodanos/llama-tui/internal/hardware"
-	"github.com/patriciodanos/llama-tui/internal/huggingface"
-	"github.com/patriciodanos/llama-tui/internal/llamaserver"
-	"github.com/patriciodanos/llama-tui/internal/ui"
-	"github.com/patriciodanos/llama-tui/internal/updater"
+	"github.com/AresiusXP/llama-tui/internal/config"
+	"github.com/AresiusXP/llama-tui/internal/hardware"
+	"github.com/AresiusXP/llama-tui/internal/huggingface"
+	"github.com/AresiusXP/llama-tui/internal/llamaserver"
+	"github.com/AresiusXP/llama-tui/internal/ui"
+	"github.com/AresiusXP/llama-tui/internal/updater"
 )
 
 // activeView identifies which screen is active.

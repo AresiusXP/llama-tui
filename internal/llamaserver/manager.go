@@ -14,8 +14,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/patriciodanos/llama-tui/internal/config"
-	"github.com/patriciodanos/llama-tui/internal/hardware"
+	"github.com/AresiusXP/llama-tui/internal/config"
+	"github.com/AresiusXP/llama-tui/internal/hardware"
 )
 
 // State represents the current state of llama-server.

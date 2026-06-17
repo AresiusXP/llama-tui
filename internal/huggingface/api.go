@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patriciodanos/llama-tui/assets"
+	"github.com/AresiusXP/llama-tui/assets"
 )
 
 const baseURL = "https://huggingface.co"

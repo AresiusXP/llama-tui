@@ -1,4 +1,4 @@
-module github.com/patriciodanos/llama-tui
+module github.com/AresiusXP/llama-tui
 
 go 1.26.4
 

@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/patriciodanos/llama-tui/internal/llamaserver"
+	"github.com/AresiusXP/llama-tui/internal/llamaserver"
 )
 
 // CloseChatMsg is sent when user presses Esc to return to detail panel.

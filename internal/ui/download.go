@@ -6,7 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/patriciodanos/llama-tui/internal/huggingface"
+	"github.com/AresiusXP/llama-tui/internal/huggingface"
 )
 
 // DownloadCompleteMsg is sent when a download finishes successfully.

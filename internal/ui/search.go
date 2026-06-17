@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/patriciodanos/llama-tui/internal/huggingface"
+	"github.com/AresiusXP/llama-tui/internal/huggingface"
 )
 
 // CloseSearchMsg is sent when the user closes the search overlay.

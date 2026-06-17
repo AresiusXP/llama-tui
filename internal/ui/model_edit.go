@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/patriciodanos/llama-tui/internal/config"
+	"github.com/AresiusXP/llama-tui/internal/config"
 )
 
 // OpenModelEditMsg is sent by DetailModel when the user presses [E].

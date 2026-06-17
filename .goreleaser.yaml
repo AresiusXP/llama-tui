@@ -11,7 +11,7 @@ builds:
     main: .
     binary: llama-tui
     ldflags:
-      - -s -w -X github.com/patriciodanos/llama-tui/cmd.Version={{.Version}}
+      - -s -w -X github.com/AresiusXP/llama-tui/cmd.Version={{.Version}}
     env:
       - CGO_ENABLED=0
     goos:

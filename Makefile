@@ -2,7 +2,7 @@
 
 BINARY     := llama-tui
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS    := -ldflags "-X github.com/patriciodanos/llama-tui/cmd.Version=$(VERSION)"
+LDFLAGS    := -ldflags "-X github.com/AresiusXP/llama-tui/cmd.Version=$(VERSION)"
 BUILD_DIR  := ./dist
 
 .PHONY: all build run lint test clean release

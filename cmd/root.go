@@ -8,8 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/patriciodanos/llama-tui/internal/app"
-	"github.com/patriciodanos/llama-tui/internal/config"
+	"github.com/AresiusXP/llama-tui/internal/app"
+	"github.com/AresiusXP/llama-tui/internal/config"
 )
 
 // Version is set at build time via -ldflags.
