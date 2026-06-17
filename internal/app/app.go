@@ -25,7 +25,7 @@ import (
 type activeView int
 
 const (
-	viewMain      activeView = iota
+	viewMain activeView = iota
 	viewSearch
 	viewChat
 	viewSettings
@@ -35,8 +35,8 @@ const (
 
 // updateAvailable holds pending update notification.
 type updateAvailable struct {
-	appUpdate    updater.UpdateInfo
-	llamaUpdate  updater.UpdateInfo
+	appUpdate   updater.UpdateInfo
+	llamaUpdate updater.UpdateInfo
 }
 
 // Model is the root Bubble Tea model.
@@ -76,6 +76,11 @@ type Model struct {
 	// downloadCancel cancels the current in-progress download (nil if none).
 	downloadCancel context.CancelFunc
 
+	// downloadQueue holds pending shard filenames (repoID is the same as the
+	// active download). When a shard download completes, the next entry is
+	// popped and started automatically. Cleared on cancel.
+	downloadQueue []string // remaining shard filenames, same repoID as active
+
 	// activeDownload tracks the current download's remote info for resume support.
 	activeDownload struct {
 		repoID         string
@@ -100,10 +105,10 @@ type Model struct {
 	llamaInstallPct float64 // 0.0–1.0 install progress
 
 	// cached llama-server health (computed async — never call IsHealthy in View/Update)
-	llamaHealthy     bool   // cached result of the last health check
-	llamaChecked     bool   // whether at least one health check has completed
-	llamaInstallTried bool  // guard: auto-install attempted this session (prevents loops)
-	pendingLoadPath  string // model path to auto-load once llama-server is ready
+	llamaHealthy      bool   // cached result of the last health check
+	llamaChecked      bool   // whether at least one health check has completed
+	llamaInstallTried bool   // guard: auto-install attempted this session (prevents loops)
+	pendingLoadPath   string // model path to auto-load once llama-server is ready
 
 	// server log ring buffer (last 5 lines shown in status)
 	serverLogs []string
@@ -371,6 +376,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.manager.State().String(),
 				m.manager.ActiveAddress(),
 				m.activeGPUName(),
+				m.activeGPUVendor(),
 			)
 		}
 		m.ready = true
@@ -381,13 +387,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── GPU detection ────────────────────────────────────────────────────
 	case gpusDetectedMsg:
 		m.gpus = msg.gpus
-		if m.selectedGPUIndex >= len(m.gpus) {
+		if m.selectedGPUIndex < 0 || m.selectedGPUIndex >= len(m.gpus) {
 			m.selectedGPUIndex = 0
 		}
 		m.detail.SetServerState(
 			m.manager.State().String(),
 			m.manager.ActiveAddress(),
 			m.activeGPUName(),
+			m.activeGPUVendor(),
 		)
 		m.status.GPU = m.activeGPUName()
 
@@ -443,7 +450,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			path := m.pendingLoadPath
 			m.pendingLoadPath = ""
 			runCfg := m.buildRunConfig(path)
-			m.detail.SetServerState("STARTING", "", m.activeGPUName())
+			m.detail.SetServerState("STARTING", "", m.activeGPUName(), m.activeGPUVendor())
 			// Async load — never block the event loop.
 			cmds = append(cmds,
 				loadModelCmd(m.manager, runCfg),
@@ -476,7 +483,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// immediately. Without this, detail.View() shows "○ AVAILABLE" because it
 		// holds a stale pre-load copy of the model.
 		m.detail.SetModel(m.library.SelectedModel())
-		m.detail.SetServerState("RUNNING", msg.Address, m.activeGPUName())
+		m.detail.SetServerState("RUNNING", msg.Address, m.activeGPUName(), m.activeGPUVendor())
 		m.logs.SetLogs(m.serverLogs)
 		m.status.ModelLoaded = true
 		m.status.UsageStats = "Active"
@@ -503,7 +510,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case llamaserver.ServerStoppedMsg:
 		m.library.SetActiveModel("")
-		m.detail.SetServerState("STOPPED", "", m.activeGPUName())
+		m.detail.SetServerState("STOPPED", "", m.activeGPUName(), m.activeGPUVendor())
 		// Push final log lines to the log panel.
 		m.logs.SetLogs(m.serverLogs)
 		// Stop the metrics poller and clear live metrics.
@@ -582,7 +589,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			)
 		}
 		runCfg := m.buildRunConfig(msg.Model.Path)
-		m.detail.SetServerState("STARTING", "", m.activeGPUName())
+		m.detail.SetServerState("STARTING", "", m.activeGPUName(), m.activeGPUVendor())
 		m.status.UsageStats = "Starting"
 		// Run LoadModel off the event loop — it may block up to 5s unloading a
 		// previous model. Success arrives via ServerStartedMsg.
@@ -593,7 +600,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Model load failed ─────────────────────────────────────────────────
 	case modelLoadFailedMsg:
-		m.detail.SetServerState("ERROR", "", m.activeGPUName())
+		m.detail.SetServerState("ERROR", "", m.activeGPUName(), m.activeGPUVendor())
 		m.status.UsageStats = "Error"
 		return m, m.notify("Failed to load: " + msg.err.Error())
 
@@ -622,6 +629,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			notifMsg = "Deleted " + msg.Model.Name
 			m.detail.SetModel(nil)
+			// Also delete any sibling shards for split GGUFs (best-effort).
+			dir := filepath.Dir(msg.Model.Path)
+			for _, sib := range huggingface.ShardSiblings(msg.Model.Name) {
+				_ = os.Remove(filepath.Join(dir, sib))
+			}
 		}
 		if err := m.library.Refresh(); err != nil {
 			notifMsg = "Library refresh failed: " + err.Error()
@@ -651,6 +663,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.downloadCancel()
 			m.downloadCancel = nil
 		}
+		m.downloadQueue = nil // discard any queued sibling shards
 		// Mark the model as paused in-place (no Refresh — that would lose the status).
 		m.library.MarkPaused(
 			m.activeDownload.localFilename,
@@ -661,11 +674,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Resume download ───────────────────────────────────────────────────
 	case ui.ResumeDownloadMsg:
+		// Queue any remaining sibling shards so they are downloaded after the
+		// resumed shard completes (handles partial multi-shard downloads).
+		m.downloadQueue = huggingface.ShardSiblings(msg.RemoteFilename)
 		return m, m.doDownload(msg.RepoID, msg.RemoteFilename, m.cfg.ModelsDir, m.cfg.HuggingFace.Token)
 
 	// ── Download request (from search) ───────────────────────────────────
 	case ui.DownloadRequestMsg:
 		m.view = viewMain
+		// For split GGUFs, queue sibling shards for sequential download after
+		// shard 1 completes. Sequential (not concurrent) to avoid cancelling
+		// the active download inside doDownload.
+		m.downloadQueue = huggingface.ShardSiblings(msg.Filename)
 		return m, m.doDownload(msg.RepoID, msg.Filename, m.cfg.ModelsDir, m.cfg.HuggingFace.Token)
 
 	// ── Download progress ─────────────────────────────────────────────────
@@ -695,6 +715,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			notifMsg = "Library refresh failed: " + err.Error()
 		}
 		m.detail.SetModel(m.library.SelectedModel())
+		// If more shards are queued (split GGUF), start the next one now.
+		if len(m.downloadQueue) > 0 {
+			next := m.downloadQueue[0]
+			m.downloadQueue = m.downloadQueue[1:]
+			repoID := m.activeDownload.repoID
+			return m, tea.Batch(
+				m.doDownload(repoID, next, m.cfg.ModelsDir, m.cfg.HuggingFace.Token),
+				m.notify(notifMsg+" · downloading next shard…"),
+			)
+		}
 		return m, m.notify(notifMsg)
 
 	// ── Download error ────────────────────────────────────────────────────
@@ -739,6 +769,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Sync detail panel with the current library selection after recreate.
 				m.detail.SetModel(m.library.SelectedModel())
+				// Refresh the detail panel's GPU label immediately — it would
+				// otherwise stay stale until the next server lifecycle event.
+				m.detail.SetServerState(
+					m.manager.State().String(),
+					m.detail.ServerAddress(),
+					m.activeGPUName(),
+					m.activeGPUVendor(),
+				)
+				m.status.GPU = m.activeGPUName()
 				return m, m.notify(notifMsg)
 			}
 		}
@@ -1144,10 +1183,22 @@ func (m *Model) activeGPUName() string {
 	if len(m.gpus) == 0 {
 		return ""
 	}
-	if m.selectedGPUIndex >= len(m.gpus) {
+	if m.selectedGPUIndex < 0 || m.selectedGPUIndex >= len(m.gpus) {
 		return m.gpus[0].Name
 	}
 	return m.gpus[m.selectedGPUIndex].Name
+}
+
+// activeGPUVendor returns the vendor string of the currently selected GPU
+// (e.g. "nvidia", "amd", "apple", "intel"). Returns "" when no GPU is available.
+func (m *Model) activeGPUVendor() string {
+	if len(m.gpus) == 0 {
+		return ""
+	}
+	if m.selectedGPUIndex < 0 || m.selectedGPUIndex >= len(m.gpus) {
+		return m.gpus[0].Vendor
+	}
+	return m.gpus[m.selectedGPUIndex].Vendor
 }
 
 // buildRunConfig creates a ModelRunConfig from current settings,
@@ -1156,7 +1207,7 @@ func (m *Model) buildRunConfig(modelPath string) llamaserver.ModelRunConfig {
 	var gpu *hardware.GPU
 	if len(m.gpus) > 0 {
 		idx := m.selectedGPUIndex
-		if idx >= len(m.gpus) {
+		if idx < 0 || idx >= len(m.gpus) {
 			idx = 0
 		}
 		g := m.gpus[idx]
@@ -1212,23 +1263,27 @@ func (m *Model) buildRunConfig(modelPath string) llamaserver.ModelRunConfig {
 // doDownload launches a background goroutine that streams download progress via
 // p.Send, which is the correct Bubble Tea pattern for long-running async work.
 // The returned tea.Cmd returns nil immediately (it just starts the goroutine).
+// doDownload launches a background goroutine that streams download progress via
+// p.Send(). State mutations (cancel func, activeDownload) are performed
+// synchronously on the caller (main) goroutine before returning the cmd, so
+// there is no data race with the Update() handler.
 // A cancellable context is stored in m.downloadCancel so the download can be
 // stopped via CancelDownloadMsg.
 func (m *Model) doDownload(repoID, filename, destDir, token string) tea.Cmd {
+	// Cancel any previous in-flight download synchronously on the main goroutine.
+	if m.downloadCancel != nil {
+		m.downloadCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.downloadCancel = cancel
+
+	// Record resume info so cancel can mark the model as paused.
+	m.activeDownload.repoID = repoID
+	m.activeDownload.remoteFilename = filename
+	m.activeDownload.localFilename = filepath.Base(filename)
+
+	p := m.program
 	return func() tea.Msg {
-		// Cancel any previous in-flight download.
-		if m.downloadCancel != nil {
-			m.downloadCancel()
-		}
-		ctx, cancel := context.WithCancel(context.Background())
-		m.downloadCancel = cancel
-
-		// Record resume info so cancel can mark the model as paused.
-		m.activeDownload.repoID = repoID
-		m.activeDownload.remoteFilename = filename
-		m.activeDownload.localFilename = filepath.Base(filename)
-
-		p := m.program
 		go func() {
 			ch := huggingface.DownloadFile(ctx, repoID, filename, destDir, token)
 			for prog := range ch {

@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -19,21 +21,39 @@ type GPU struct {
 	IsDefault bool   // true for index 0
 }
 
+var (
+	gpuCache     []GPU
+	gpuCacheOnce sync.Once
+)
+
 // DetectGPUs returns all detected GPUs on the current system.
+// Results are cached after the first call so that external commands
+// (nvidia-smi, lspci, system_profiler) are only executed once per process.
 // It returns an empty slice (not error) if no GPUs are found or detection fails.
-// Detection runs fast platform-specific commands in a best-effort manner.
 func DetectGPUs() []GPU {
-	gpus := detectGPUs()
-	for i := range gpus {
-		gpus[i].Index = i
-		gpus[i].IsDefault = i == 0
-	}
-	return gpus
+	gpuCacheOnce.Do(func() {
+		raw := detectGPUs()
+		for i := range raw {
+			raw[i].Index = i
+			raw[i].IsDefault = i == 0
+		}
+		gpuCache = raw
+	})
+	// Return a copy so callers cannot mutate the cache.
+	out := make([]GPU, len(gpuCache))
+	copy(out, gpuCache)
+	return out
 }
 
 // LlamaServerFlags returns the llama-server CLI flags for the given GPU and layers.
 // gpu may be nil (use CPU).
 // layers: -1 means "auto" (offload all), 0 means CPU only, >0 means N layers.
+//
+// For Vulkan backends (nvidia, amd, intel on Linux) the device is selected via
+// the GGML_VK_VISIBLE_DEVICES environment variable returned by LlamaServerEnv,
+// which hides all other Vulkan devices so the chosen GPU is always Vulkan0.
+// --main-gpu is therefore never emitted; it would be wrong when multiple Vulkan
+// devices are visible and redundant (== 0) when only one is.
 func LlamaServerFlags(gpu *GPU, layers int) []string {
 	if gpu == nil || gpu.Vendor == "unknown" {
 		return []string{"--n-gpu-layers", "0"}
@@ -47,13 +67,36 @@ func LlamaServerFlags(gpu *GPU, layers int) []string {
 	switch gpu.Vendor {
 	case "apple":
 		return []string{"--n-gpu-layers", layerVal}
-	case "nvidia", "amd":
+	case "nvidia", "amd", "intel":
 		if layers == 0 {
 			return []string{"--n-gpu-layers", "0"}
 		}
-		return []string{"--n-gpu-layers", layerVal, "--main-gpu", strconv.Itoa(gpu.Index)}
+		return []string{"--n-gpu-layers", layerVal}
 	default:
 		return []string{"--n-gpu-layers", "0"}
+	}
+}
+
+// LlamaServerEnv returns additional environment variables that must be set when
+// launching llama-server for the given GPU. Returns nil for CPU/Apple (no extra
+// env needed).
+//
+// For Vulkan-capable GPUs (nvidia, amd, intel) it emits:
+//
+//	GGML_VK_VISIBLE_DEVICES=<gpu.Index>
+//
+// This restricts Vulkan enumeration to only the selected device, preventing
+// llama.cpp from spilling tensors onto other GPUs (which can cause OOM crashes
+// when those GPUs have limited free VRAM).
+func LlamaServerEnv(gpu *GPU) []string {
+	if gpu == nil || gpu.Vendor == "unknown" || gpu.Vendor == "apple" {
+		return nil
+	}
+	switch gpu.Vendor {
+	case "nvidia", "amd", "intel":
+		return []string{fmt.Sprintf("GGML_VK_VISIBLE_DEVICES=%d", gpu.Index)}
+	default:
+		return nil
 	}
 }
 
@@ -206,9 +249,68 @@ func parseNvidiaSMI(output string) []GPU {
 	return gpus
 }
 
+// trimLspciName shortens a raw lspci device description to a more readable form.
+// It removes known long vendor prefixes and strips the trailing "(rev XX)" suffix.
+// Example: "Advanced Micro Devices, Inc. [AMD/ATI] HawkPoint1 (rev c5)" → "AMD HawkPoint1"
+func trimLspciName(raw, vendor string) string {
+	name := raw
+	// Strip long AMD/ATI vendor prefix variations.
+	for _, pfx := range []string{
+		"Advanced Micro Devices, Inc. [AMD/ATI] ",
+		"Advanced Micro Devices, Inc. [AMD] ",
+		"Advanced Micro Devices, Inc. ",
+	} {
+		if strings.HasPrefix(name, pfx) {
+			name = strings.TrimPrefix(name, pfx)
+			break
+		}
+	}
+	// Strip long Intel vendor prefix.
+	for _, pfx := range []string{
+		"Intel Corporation ",
+		"Intel Corp. ",
+	} {
+		if strings.HasPrefix(name, pfx) {
+			name = strings.TrimPrefix(name, pfx)
+			break
+		}
+	}
+	// Strip long NVIDIA vendor prefix.
+	if strings.HasPrefix(name, "NVIDIA Corporation ") {
+		name = strings.TrimPrefix(name, "NVIDIA Corporation ")
+	}
+	// Strip trailing "(rev XX)" suffix.
+	if idx := strings.LastIndex(name, " (rev "); idx >= 0 {
+		name = strings.TrimSpace(name[:idx])
+	}
+	// Prepend a short vendor tag if the name doesn't already start with it.
+	tag := ""
+	switch vendor {
+	case "amd":
+		tag = "AMD "
+	case "intel":
+		tag = "Intel "
+	case "nvidia":
+		tag = "NVIDIA "
+	}
+	if tag != "" && !strings.HasPrefix(strings.ToUpper(name), strings.ToUpper(tag)) {
+		name = tag + name
+	}
+	if name == "" {
+		return raw
+	}
+	return name
+}
+
 // parseLspci parses lspci output for VGA/3D controller lines.
 func parseLspci(output string) []GPU {
 	var gpus []GPU
+	// controller type labels that appear before the vendor/model in lspci output.
+	typeLabels := []string{
+		"VGA compatible controller: ",
+		"3D controller: ",
+		"Display controller: ",
+	}
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -218,26 +320,24 @@ func parseLspci(output string) []GPU {
 			!strings.Contains(upper, "DISPLAY CONTROLLER") {
 			continue
 		}
-		// Format: "xx:xx.x VGA compatible controller: Vendor Name [Model] (rev xx)"
-		idx := strings.Index(line, ":")
-		if idx < 0 {
-			continue
-		}
-		rest := strings.TrimSpace(line[idx+1:])
-		// Strip the controller type prefix
-		for _, prefix := range []string{
-			"VGA compatible controller: ",
-			"3D controller: ",
-			"Display controller: ",
-		} {
-			if strings.HasPrefix(rest, prefix) {
-				rest = strings.TrimPrefix(rest, prefix)
+		// Find the controller type label (case-insensitive) and extract everything after it.
+		// This is robust to any number of colons in the PCI address (including PCI domains).
+		var rest string
+		found := false
+		for _, lbl := range typeLabels {
+			if idx := strings.Index(upper, strings.ToUpper(lbl)); idx >= 0 {
+				rest = strings.TrimSpace(line[idx+len(lbl):])
+				found = true
 				break
 			}
 		}
+		if !found || rest == "" {
+			continue
+		}
 		vendor := parseVendorString(rest)
+		name := trimLspciName(rest, vendor)
 		gpus = append(gpus, GPU{
-			Name:   rest,
+			Name:   name,
 			VRAM:   "Unknown",
 			Vendor: vendor,
 		})

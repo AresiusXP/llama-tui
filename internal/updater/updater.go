@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/patriciodanos/llama-tui/internal/hardware"
 )
 
 const (
@@ -102,7 +104,7 @@ func CheckLlamaServerUpdate(ctx context.Context, currentBuildTag string) UpdateI
 		return info
 	}
 
-	assetName := LlamaServerAssetName(release.TagName)
+	assetName := LlamaServerAssetName(release.TagName, hardware.DetectLinuxGPUBuild())
 	for _, a := range release.Assets {
 		if a.Name == assetName {
 			info.Available = true
@@ -114,17 +116,30 @@ func CheckLlamaServerUpdate(ctx context.Context, currentBuildTag string) UpdateI
 	return info
 }
 
-// LlamaServerAssetName returns the expected asset filename for the current platform.
-// e.g. "llama-b9667-bin-macos-arm64.tar.gz"
-func LlamaServerAssetName(tag string) string {
+// LlamaServerAssetName returns the expected release asset filename for the
+// current platform and the requested build variant.
+//
+// variant controls which GPU backend is embedded in the Linux build:
+//   - "vulkan" → Vulkan-enabled build (works for NVIDIA and AMD on Linux)
+//   - ""       → CPU-only build (safe fallback)
+//
+// On macOS, variant is ignored — Metal is always built in.
+// e.g. "llama-b9667-bin-ubuntu-vulkan-x64.tar.gz"
+func LlamaServerAssetName(tag, variant string) string {
 	switch runtime.GOOS + "/" + runtime.GOARCH {
 	case "darwin/arm64":
 		return fmt.Sprintf("llama-%s-bin-macos-arm64.tar.gz", tag)
 	case "darwin/amd64":
 		return fmt.Sprintf("llama-%s-bin-macos-x64.tar.gz", tag)
 	case "linux/arm64":
+		if variant == "vulkan" {
+			return fmt.Sprintf("llama-%s-bin-ubuntu-vulkan-arm64.tar.gz", tag)
+		}
 		return fmt.Sprintf("llama-%s-bin-ubuntu-arm64.tar.gz", tag)
-	default:
+	default: // linux/amd64
+		if variant == "vulkan" {
+			return fmt.Sprintf("llama-%s-bin-ubuntu-vulkan-x64.tar.gz", tag)
+		}
 		return fmt.Sprintf("llama-%s-bin-ubuntu-x64.tar.gz", tag)
 	}
 }
@@ -138,7 +153,7 @@ func DownloadLlamaServer(ctx context.Context, release Release, destPath string) 
 	go func() {
 		defer close(ch)
 
-		assetName := LlamaServerAssetName(release.TagName)
+		assetName := LlamaServerAssetName(release.TagName, hardware.DetectLinuxGPUBuild())
 		var downloadURL string
 		var totalSize int64
 		for _, a := range release.Assets {

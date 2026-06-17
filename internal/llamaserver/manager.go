@@ -186,6 +186,13 @@ func (m *Manager) LoadModel(runCfg ModelRunConfig) error {
 	binaryPath := m.cfg.LlamaServerPath()
 	cmd := exec.CommandContext(ctx, binaryPath, args...)
 
+	// Inject GPU-specific environment variables (e.g. GGML_VK_VISIBLE_DEVICES).
+	// LlamaServerEnv returns nil for CPU/Apple, so we only set cmd.Env when
+	// there is actually something extra to add.
+	if extraEnv := hardware.LlamaServerEnv(runCfg.GPU); len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
+
 	// Pipe stdout and stderr separately — do NOT use io.MultiReader, which
 	// reads them sequentially and deadlocks if stderr fills its buffer while
 	// stdout is still open. Instead, scan each pipe in its own goroutine.
@@ -241,6 +248,11 @@ func (m *Manager) LoadModel(runCfg ModelRunConfig) error {
 		defer close(waitDone)
 		pipeWg.Wait() // all pipe data drained — safe to call Wait now
 		err := cmd.Wait()
+		// Cancel the context so waitForHealth returns immediately instead of
+		// continuing to poll for up to 60 seconds after the process has exited.
+		if cancel != nil {
+			cancel()
+		}
 		m.mu.Lock()
 		m.state = StateStopped
 		m.activeModel = ""
@@ -266,6 +278,41 @@ func (m *Manager) LoadModel(runCfg ModelRunConfig) error {
 				})
 			} else {
 				m.mu.Unlock()
+			}
+		} else {
+			// Health check failed — either the process exited or the 60-second
+			// deadline elapsed. If the context was cancelled (explicit unload or
+			// the wait goroutine already cleaned up), exit silently — no spurious
+			// "failed to start" log entry in that case.
+			if ctx.Err() != nil {
+				return
+			}
+
+			// Surface a meaningful diagnostic through the log and ensure the
+			// process is cleaned up so the wait goroutine delivers ServerStoppedMsg.
+			m.logMu.Lock()
+			var lastLog string
+			if len(m.logBuf) > 0 {
+				lastLog = m.logBuf[len(m.logBuf)-1]
+			}
+			m.logMu.Unlock()
+
+			hint := "llama-server failed to start"
+			if lastLog != "" {
+				hint = fmt.Sprintf("llama-server failed to start: %s", lastLog)
+			}
+			m.appendLog("[llama-tui] " + hint)
+
+			// Terminate the process so the wait goroutine delivers ServerStoppedMsg.
+			m.mu.Lock()
+			cmd := m.cmd
+			cancel := m.cancel
+			m.mu.Unlock()
+			if cancel != nil {
+				cancel()
+			}
+			if cmd != nil && cmd.Process != nil {
+				_ = cmd.Process.Signal(os.Interrupt)
 			}
 		}
 	}()

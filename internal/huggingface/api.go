@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -166,9 +168,14 @@ func (c *Client) ListGGUFFiles(ctx context.Context, repoID string) ([]RepoFile, 
 	return ggufFiles, nil
 }
 
+// shardPattern matches split GGUF filenames like "model-00001-of-00003.gguf".
+// Capture groups: (1) base name, (2) shard index, (3) total shards.
+var shardPattern = regexp.MustCompile(`(?i)^(.*)-(\d{5})-of-(\d{5})\.gguf$`)
+
 // isAuxiliaryGGUF returns true for GGUF files that are not standalone model
 // weights — specifically multimodal projectors (mmproj-*), multi-token
-// prediction heads (mtp-*), and any file nested in a subdirectory.
+// prediction heads (mtp-*), subdirectory files, and non-first shards of
+// split models (e.g. -00002-of-00003.gguf).
 func isAuxiliaryGGUF(rfilename string) bool {
 	// Files in subdirectories (e.g. MTP/gemma-...gguf) are never root models.
 	if strings.Contains(rfilename, "/") {
@@ -183,7 +190,42 @@ func isAuxiliaryGGUF(rfilename string) bool {
 	if strings.HasPrefix(base, "mtp-") {
 		return true
 	}
+	// Non-first shards of split GGUFs (-00002-of-N, -00003-of-N, …).
+	// Only shard 1 (-00001-of-N) is shown; the rest are downloaded automatically.
+	if m := shardPattern.FindStringSubmatch(rfilename); m != nil {
+		idx, _ := strconv.Atoi(m[2])
+		if idx > 1 {
+			return true
+		}
+	}
 	return false
+}
+
+// ShardSiblings returns the filenames of all shards that come after filename
+// in a split GGUF set. For shard 1 of N this is shards 2…N; for shard K of N
+// this is shards K+1…N (useful when resuming a partially downloaded set).
+// Returns nil if filename is not a split shard or is already the last shard.
+func ShardSiblings(filename string) []string {
+	m := shardPattern.FindStringSubmatch(filename)
+	if m == nil {
+		return nil
+	}
+	idx, _ := strconv.Atoi(m[2])
+	total, _ := strconv.Atoi(m[3])
+	if total <= 1 || idx >= total {
+		return nil
+	}
+	prefix := m[1]
+	totalStr := m[3]
+	ext := ".gguf"
+	if strings.HasSuffix(filename, ".GGUF") {
+		ext = ".GGUF"
+	}
+	siblings := make([]string, 0, total-idx)
+	for i := idx + 1; i <= total; i++ {
+		siblings = append(siblings, fmt.Sprintf("%s-%05d-of-%s%s", prefix, i, totalStr, ext))
+	}
+	return siblings
 }
 
 // DownloadURL returns the direct download URL for a file in a repo.

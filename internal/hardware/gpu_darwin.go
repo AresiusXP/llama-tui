@@ -9,3 +9,6 @@ func detectGPUs() []GPU {
 	}
 	return parseMacOSGPUs(output)
 }
+
+// DetectLinuxGPUBuild is a no-op on Darwin — always returns "".
+func DetectLinuxGPUBuild() string { return "" }

@@ -9,26 +9,46 @@ import (
 )
 
 func detectGPUs() []GPU {
-	// 1. Try nvidia-smi first.
+	var gpus []GPU
+
+	// 1. Try nvidia-smi for NVIDIA GPUs — it provides accurate VRAM.
 	out := runCommand("nvidia-smi", "--query-gpu=index,name,memory.total", "--format=csv,noheader,nounits")
 	if out != "" {
-		gpus := parseNvidiaSMI(out)
-		if len(gpus) > 0 {
-			return gpus
+		for _, g := range parseNvidiaSMI(out) {
+			gpus = append(gpus, g)
 		}
 	}
 
-	// 2. Try lspci.
+	// Track whether nvidia-smi already provided NVIDIA entries so we can
+	// skip the less-detailed lspci entries for the same cards.
+	hasNvidia := false
+	for _, g := range gpus {
+		if g.Vendor == "nvidia" {
+			hasNvidia = true
+			break
+		}
+	}
+
+	// 2. Try lspci for all remaining GPUs (AMD, Intel, etc.).
+	//    If nvidia-smi already found NVIDIA cards, skip lspci NVIDIA entries
+	//    to avoid duplicates (nvidia-smi provides better VRAM info anyway).
 	lspciOut := runCommand("lspci")
 	if lspciOut != "" {
-		gpus := parseLspci(lspciOut)
-		if len(gpus) > 0 {
-			return gpus
+		for _, g := range parseLspci(lspciOut) {
+			if g.Vendor == "nvidia" && hasNvidia {
+				// Already covered by nvidia-smi with accurate VRAM; skip.
+				continue
+			}
+			gpus = append(gpus, g)
 		}
 	}
 
-	// 3. Fall back to /sys/class/drm PCI vendor IDs.
-	return detectDRMGPUs()
+	// 3. Fall back to /sys/class/drm if still nothing found (e.g. lspci not installed).
+	if len(gpus) == 0 {
+		gpus = detectDRMGPUs()
+	}
+
+	return gpus
 }
 
 func detectDRMGPUs() []GPU {
@@ -70,4 +90,22 @@ func detectDRMGPUs() []GPU {
 		})
 	}
 	return gpus
+}
+
+// DetectLinuxGPUBuild returns the recommended llama-server build variant for
+// the current Linux system based on detected GPU hardware.
+//
+// Returns:
+//   - "vulkan" — when at least one NVIDIA or AMD GPU is detected; the Vulkan
+//     build works for both vendors without proprietary driver dependencies.
+//   - ""       — no discrete/integrated GPU detected; use the CPU-only build.
+func DetectLinuxGPUBuild() string {
+	gpus := DetectGPUs()
+	for _, g := range gpus {
+		switch g.Vendor {
+		case "nvidia", "amd", "intel":
+			return "vulkan"
+		}
+	}
+	return ""
 }

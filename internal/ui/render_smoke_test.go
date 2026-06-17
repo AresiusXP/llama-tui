@@ -26,7 +26,7 @@ func TestRenderFrameNoOverflowNoGray(t *testing.T) {
 
 	detail := NewDetail(layout.RightWidth-4, layout.RightBottomHeight)
 	detail.SetModel(&lib.models[0])
-	detail.SetServerState("STOPPED", "", "Apple M2 Max")
+	detail.SetServerState("STOPPED", "", "Apple M2 Max", "apple")
 
 	status := NewStatusPanelModel()
 	logs := NewLogPanelModel()
@@ -93,5 +93,35 @@ func TestRenderModelRowProgressBar(t *testing.T) {
 	// The progress percentage must actually be present (bar shown).
 	if !strings.Contains(row, "42%") {
 		t.Errorf("downloading row missing progress percentage %q; bar was not rendered", "42%")
+	}
+}
+
+func TestFirstShardName(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		// Non-shard — unchanged.
+		{"model.gguf", "model.gguf"},
+		{"Qwen2.5-7B-Q4_K_M.gguf", "Qwen2.5-7B-Q4_K_M.gguf"},
+		// Shard 1 — unchanged.
+		{"model-00001-of-00002.gguf", "model-00001-of-00002.gguf"},
+		// Shard 2 — mapped to shard 1.
+		{
+			"Qwen2.5-Coder-14B-Instruct-Q4_K_M-00002-of-00002.gguf",
+			"Qwen2.5-Coder-14B-Instruct-Q4_K_M-00001-of-00002.gguf",
+		},
+		{
+			"model-00003-of-00005.gguf",
+			"model-00001-of-00005.gguf",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			got := firstShardName(tc.input)
+			if got != tc.want {
+				t.Errorf("firstShardName(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
 	}
 }

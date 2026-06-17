@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -90,6 +92,22 @@ func (m *LibraryModel) SetActiveModel(path string) {
 	}
 }
 
+// localShardPattern matches split GGUF filenames like "model-00001-of-00003.gguf".
+// Capture group 2 is the shard index.
+var localShardPattern = regexp.MustCompile(`(?i)-(\d{5})-of-\d{5}\.gguf$`)
+
+// isNonFirstShard returns true for shard files whose index is > 1.
+// Such files are auto-downloaded alongside shard 1 and must not appear as
+// standalone loadable models in the library.
+func isNonFirstShard(name string) bool {
+	m := localShardPattern.FindStringSubmatch(name)
+	if m == nil {
+		return false
+	}
+	idx, _ := strconv.Atoi(m[1])
+	return idx > 1
+}
+
 // Refresh re-scans modelsDir for .gguf files.
 func (m *LibraryModel) Refresh() error {
 	entries, err := os.ReadDir(m.modelsDir)
@@ -114,6 +132,11 @@ func (m *LibraryModel) Refresh() error {
 		}
 		name := entry.Name()
 		if !strings.HasSuffix(strings.ToLower(name), ".gguf") {
+			continue
+		}
+		// Non-first shards (e.g. model-00002-of-00002.gguf) are downloaded
+		// automatically alongside shard 1 and are not loadable on their own.
+		if isNonFirstShard(name) {
 			continue
 		}
 
@@ -448,9 +471,46 @@ func truncate(s string, maxLen int) string {
 // MarkPaused marks a downloading model as paused in-place, preserving progress
 // and storing the resume information (repoID, remoteFilename) so the download
 // can be resumed later without opening the search overlay.
+// firstShardName maps any shard filename back to the first shard filename.
+// For example "model-00002-of-00003.gguf" → "model-00001-of-00003.gguf".
+// Non-shard filenames are returned unchanged.
+func firstShardName(name string) string {
+	m := localShardPattern.FindStringSubmatch(name)
+	if m == nil {
+		return name
+	}
+	idx, _ := strconv.Atoi(m[1])
+	if idx == 1 {
+		return name
+	}
+	// Replace the shard index with 00001.
+	// localShardPattern matches "-NNNNN-of-MMMMM.gguf" at the end,
+	// so we can replace the suffix after the base prefix.
+	ext := ".gguf"
+	if strings.HasSuffix(name, ".GGUF") {
+		ext = ".GGUF"
+	}
+	// Strip the matched suffix and rebuild with index 00001.
+	suffix := m[0] // the whole match, e.g. "-00002-of-00003.gguf"
+	base := name[:len(name)-len(suffix)]
+	// Preserve the total-shards digits from the original match.
+	// m[0] is "-00002-of-00003.gguf"; we need the total part.
+	// Re-extract from the full shard pattern.
+	full := localShardFullPattern.FindStringSubmatch(name)
+	if full == nil {
+		return name
+	}
+	return fmt.Sprintf("%s-00001-of-%s%s", base, full[2], ext)
+}
+
+// localShardFullPattern captures (base, total) for firstShardName reconstruction.
+var localShardFullPattern = regexp.MustCompile(`(?i)^(.*)-\d{5}-of-(\d{5})\.gguf$`)
+
 func (m *LibraryModel) MarkPaused(filename, repoID, remoteFilename string) {
+	// For split GGUFs, progress and pause state is tracked on the first shard.
+	target := firstShardName(filename)
 	for i := range m.models {
-		if m.models[i].Name == filename {
+		if m.models[i].Name == target {
 			m.models[i].Status = StatusPaused
 			m.models[i].RepoID = repoID
 			m.models[i].RemoteFilename = remoteFilename
@@ -463,10 +523,14 @@ func (m *LibraryModel) MarkPaused(filename, repoID, remoteFilename string) {
 // progress is 0.0–1.0; bytesDone is the number of bytes written so far;
 // totalBytes is the expected final size (0 if unknown);
 // done=true clears the downloading status.
+// For split GGUFs, non-first shards are mapped to the first shard entry so the
+// progress bar reflects the overall download state.
 // Returns true if the model was found and updated, false if not found in the list.
 func (m *LibraryModel) UpdateDownloadProgress(filename string, progress float64, bytesDone, totalBytes int64, done bool) bool {
+	// For split GGUFs, track progress on the first shard entry.
+	target := firstShardName(filename)
 	for i := range m.models {
-		if m.models[i].Name == filename {
+		if m.models[i].Name == target {
 			if done {
 				m.models[i].Status = StatusAvailable
 				m.models[i].Progress = 0

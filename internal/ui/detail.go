@@ -17,6 +17,7 @@ type DetailModel struct {
 	serverState string      // "STOPPED", "STARTING", "RUNNING", "ERROR"
 	address     string      // e.g. "http://localhost:8080"
 	gpuName     string      // active GPU name for display
+	gpuVendor   string      // active GPU vendor ("nvidia", "amd", "apple", "intel", …)
 	focused     bool
 	width       int
 	height      int
@@ -48,10 +49,17 @@ func (m *DetailModel) SetModel(model *LocalModel) {
 }
 
 // SetServerState updates the server state fields.
-func (m *DetailModel) SetServerState(state, address, gpuName string) {
+// gpuVendor should be the lowercase vendor string ("nvidia", "amd", "apple", "intel", etc.).
+func (m *DetailModel) SetServerState(state, address, gpuName, gpuVendor string) {
 	m.serverState = state
 	m.address = address
 	m.gpuName = gpuName
+	m.gpuVendor = gpuVendor
+}
+
+// ServerAddress returns the currently stored server address.
+func (m DetailModel) ServerAddress() string {
+	return m.address
 }
 
 // Init implements tea.Model.
@@ -178,8 +186,14 @@ func (m DetailModel) View() string {
 	// GPU line — appended separately after fields so we can insert a blank line.
 	var gpuLine string
 	if m.gpuName != "" {
-		gpu := StyleDim.Render(fmt.Sprintf("%s · Metal", m.gpuName))
-		gpuLine = indent + fieldLabel("GPU") + gpu
+		backend := gpuBackendLabel(m.gpuVendor)
+		var gpuText string
+		if backend != "" {
+			gpuText = fmt.Sprintf("%s · %s", m.gpuName, backend)
+		} else {
+			gpuText = m.gpuName
+		}
+		gpuLine = indent + fieldLabel("GPU") + StyleDim.Render(gpuText)
 	}
 
 	// Action keys.
@@ -237,4 +251,21 @@ func truncatePath(path string, maxLen int) string {
 		return path
 	}
 	return "…" + path[len(path)-maxLen+1:]
+}
+
+// gpuBackendLabel returns the compute-backend label for a GPU vendor.
+// Returns an empty string when no meaningful label is applicable.
+func gpuBackendLabel(vendor string) string {
+	switch vendor {
+	case "apple":
+		return "Metal"
+	case "nvidia":
+		return "CUDA"
+	case "amd":
+		return "Vulkan"
+	case "intel":
+		return "Vulkan"
+	default:
+		return ""
+	}
 }
